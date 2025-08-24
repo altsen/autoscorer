@@ -7,6 +7,8 @@ from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 from autoscorer.pipeline import run_only, score_only, run_and_score
+# Import scorers package to trigger static registrations on startup
+from autoscorer import scorers as _builtin_scorers  # noqa: F401
 from autoscorer.utils.errors import AutoscorerError, maybe_print_exception
 from autoscorer.scorers.registry import (
     get_registry, list_scorers, load_scorer_file, reload_scorer_file,
@@ -273,11 +275,13 @@ async def test_scorer(req: TestScorerRequest):
         
         execution_time = time.time() - start_time
         
+        # 序列化 Result (兼容 pydantic v1/v2)
+        result_payload = result.model_dump() if hasattr(result, "model_dump") else (result.dict() if hasattr(result, "dict") else result)
         data = {
             "scorer_name": req.scorer_name,
             "scorer_class": scorer_cls.__name__,
             "workspace": str(workspace),
-            "result": result.dict()  # 完整的Result对象
+            "result": result_payload  # 完整的Result对象
         }
         
         meta = {
@@ -322,12 +326,15 @@ async def api_run(req: PipelineRequest):
         
     except AutoscorerError as e:
         logs_path = str((ws / "logs" / "container.log").resolve())
+        details = {}
+        if getattr(e, "details", None):
+            try:
+                details.update(e.details)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        details.update({"logs_path": logs_path, "workspace": str(ws)})
         return JSONResponse(
-            make_error_response(e.code, e.message, "execution", {
-                **e.details,
-                "logs_path": logs_path,
-                "workspace": str(ws)
-            }),
+            make_error_response(e.code, e.message, "execution", details),
             status_code=400
         )
     except Exception as e:
@@ -368,11 +375,15 @@ async def api_score(req: PipelineRequest):
         return make_success_response(data, meta)
         
     except AutoscorerError as e:
+        details = {}
+        if getattr(e, "details", None):
+            try:
+                details.update(e.details)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        details.update({"workspace": str(ws)})
         return JSONResponse(
-            make_error_response(e.code, e.message, "scoring", {
-                **e.details,
-                "workspace": str(ws)
-            }),
+            make_error_response(e.code, e.message, "scoring", details),
             status_code=400
         )
     except Exception as e:
@@ -424,12 +435,15 @@ async def api_pipeline(req: PipelineRequest):
         
     except AutoscorerError as e:
         logs_path = str((ws / "logs" / "container.log").resolve())
+        details = {}
+        if getattr(e, "details", None):
+            try:
+                details.update(e.details)  # type: ignore[arg-type]
+            except Exception:
+                pass
+        details.update({"logs_path": logs_path, "workspace": str(ws)})
         return JSONResponse(
-            make_error_response(e.code, e.message, "pipeline", {
-                **e.details,
-                "logs_path": logs_path,
-                "workspace": str(ws)
-            }),
+            make_error_response(e.code, e.message, "pipeline", details),
             status_code=400
         )
     except Exception as e:

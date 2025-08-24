@@ -90,11 +90,11 @@ def validate_workspace(ws: Path) -> dict:
             # 检查评分器是否存在
             if "scorer" in meta:
                 try:
-                    from autoscorer.scorers.registry import get_scorer
-                    get_scorer(meta["scorer"])
-                except KeyError:
-                    result["ok"] = False
-                    result["errors"].append(f"SCORER_NOT_FOUND: {meta['scorer']}")
+                    # 避免 get_scorer 实例化副作用，改用 get_scorer_class 仅判断存在性
+                    from autoscorer.scorers.registry import get_scorer_class
+                    if get_scorer_class(meta["scorer"]) is None:
+                        result["ok"] = False
+                        result["errors"].append(f"SCORER_NOT_FOUND: {meta['scorer']}")
                 except Exception as e:
                     result["ok"] = False
                     result["errors"].append(f"SCORER_ERROR: {e}")

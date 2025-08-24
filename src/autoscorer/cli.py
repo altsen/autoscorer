@@ -10,6 +10,8 @@ from autoscorer.schemas.job import JobSpec
 from autoscorer.schemas.result import Result
 from autoscorer.executor.docker_executor import DockerExecutor
 from autoscorer.scheduler import Scheduler
+# Ensure built-in scorers are registered via package import side-effect
+from autoscorer import scorers as _builtin_scorers  # noqa: F401
 from autoscorer.scorers.registry import get_scorer
 from autoscorer.utils.errors import make_error, AutoscorerError
 from autoscorer.pipeline import run_and_score as pipeline_run_and_score

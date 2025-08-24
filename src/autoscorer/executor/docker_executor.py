@@ -65,8 +65,17 @@ class DockerExecutor(Executor):
         # 安全选项
         security_opts = self.cfg.get("SECURITY_OPTS", ["no-new-privileges:true"])
 
-        # 网络策略
-        network_mode = spec.container.network_policy or "none"
+        # 网络策略：将自定义策略映射到 docker network_mode
+        # none|host|bridge|<custom network name>
+        policy = (spec.container.network_policy or "none").lower()
+        if policy in {"none", "host", "bridge"}:
+            network_mode = policy
+        elif policy in {"restricted", "allowlist"}:
+            # 简化处理：restricted -> none, allowlist -> bridge（可扩展到自定义网络）
+            network_mode = "none" if policy == "restricted" else "bridge"
+        else:
+            # 允许用户直接提供自定义 docker 网络名
+            network_mode = policy
 
         # 镜像仓库登录（可选）
         reg_user = self.cfg.get("REGISTRY_USER")

@@ -7,6 +7,8 @@ from autoscorer.schemas.result import Result
 from autoscorer.scheduler import Scheduler
 from autoscorer.executor.docker_executor import DockerExecutor
 from autoscorer.scorers.registry import get_scorer, load_scorer_directory, get_scorer_class
+# Ensure static scorer registration is performed even when called outside CLI/API
+from autoscorer import scorers as _builtin_scorers  # noqa: F401
 from autoscorer.utils.errors import AutoscorerError, make_error
 from autoscorer.utils.logger import get_logger
 
@@ -106,7 +108,16 @@ def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: 
     
     result: Result = scorer.score(ws, params or {})
     out = ws / "output" / "result.json"
-    out.write_text(result.model_dump_json(indent=2))
+    try:
+        payload_json = result.model_dump_json(indent=2)  # pydantic v2
+    except Exception:
+        try:
+            import json as _json
+            payload_json = _json.dumps(result.dict(), ensure_ascii=False, indent=2)  # pydantic v1
+        except Exception:
+            import json as _json
+            payload_json = _json.dumps(getattr(result, "__dict__", {}), ensure_ascii=False, indent=2)
+    out.write_text(payload_json)
     return result, out
 
 

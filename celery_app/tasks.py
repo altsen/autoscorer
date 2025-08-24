@@ -139,12 +139,18 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
     try:
         logger.info(f"Starting score_job for workspace: {workspace}")
         ws = Path(workspace)
-        summary, out = score_only(ws, params or {})
-        result = {**summary, "result_path": str(out)}
+        # score_only 返回 (Result, Path)
+        result_model, out = score_only(ws, params or {})
+        # pydantic v2 序列化
+        payload = (
+            result_model.model_dump() if hasattr(result_model, "model_dump")
+            else (result_model.dict() if hasattr(result_model, "dict") else result_model)
+        )
+        result = {"score_result": payload, "result_path": str(out), "workspace": str(ws)}
         logger.info(f"Completed score_job for workspace: {workspace}")
         if callback_url:
-            payload = {"ok": True, "data": {"score_result": result, "workspace": str(ws)}, "meta": {"task_id": self.request.id}}
-            _http_post_json(callback_url, payload)
+            cb = {"ok": True, "data": result, "meta": {"task_id": self.request.id}}
+            _http_post_json(callback_url, cb)
         return result
     except AutoscorerError as e:
         logger.error(f"AutoscorerError in score_job: {e.code} - {e.message}")
