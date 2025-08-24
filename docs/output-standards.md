@@ -1,31 +1,30 @@
-# 输出标准化规范 v2.0
+# 输出标准规范
 
-## 1. 概述
+本文档定义了 AutoScorer 系统中所有输出的标准化格式，确保跨平台、多场景的一致性和互操作性。
 
-本文档定义了AutoScorer系统中所有输出的标准化格式，确保跨平台、多场景的一致性和互操作性。
+## 标准化目标
 
-### 1.1 标准化目标
+### 设计原则
 
-- **统一格式**: 所有输出采用一致的JSON结构
-- **向后兼容**: 版本升级保持接口兼容性
+- **统一格式**: 所有输出采用一致的 JSON 结构
+- **向后兼容**: 版本升级保持接口兼容性  
 - **类型安全**: 明确的数据类型和约束定义
 - **可扩展性**: 支持自定义字段和算法特定输出
 - **国际化**: 支持多语言错误消息和描述
 
-### 1.2 适用范围
+### 适用范围
 
 本标准适用于：
 
 - 评分结果输出 (Result Schema)
-- API响应格式 (REST API)
-- CLI命令输出 (Command Line)
+- API 响应格式 (REST API)
+- CLI 命令输出 (Command Line)
 - 错误信息格式 (Error Handling)
 - 日志记录格式 (Logging)
 
+## 核心评分结果标准
 
-## 2. 核心评分结果标准 (Result Schema)
-
-### 2.1 基础结构定义
+### 基础结构定义
 
 ```json
 {
@@ -53,12 +52,6 @@
         "classes": ["cat", "dog", "bird"],
         "format": "normalized"
       }
-    },
-    "classification_report": {
-      "path": "output/classification_report.json",
-      "size": 2048,
-      "sha256": "a1b2c3d4e5f6...",
-      "content_type": "application/json"
     }
   },
   "timing": {
@@ -103,34 +96,33 @@
 }
 ```
 
-### 2.2 字段详细规范
+### 字段详细规范
 
-#### 2.2.1 summary 字段 (必需)
+#### summary 字段 (必需)
 
-**用途**: 提供评分核心摘要，便于快速理解结果
+提供评分核心摘要，便于快速理解结果：
 
 | 字段名 | 类型 | 必需 | 说明 | 示例 | 约束 |
 |--------|------|------|------|------|------|
 | `score` | number | ✅ | 主要评分值 | 0.85 | [0.0, 1.0] 或算法特定范围 |
 | `rank` | string | ❌ | 等级评定 | "A" | A/B/C/D 或 优/良/中/差 |
 | `pass` | boolean | ❌ | 是否通过阈值 | true | true/false |
-| `primary_metric` | string | ✅ | 主要指标名称 | "f1_macro" | 必须在metrics中存在 |
+| `primary_metric` | string | ✅ | 主要指标名称 | "f1_macro" | 必须在 metrics 中存在 |
 
 **算法特定标准字段**:
 
 | 算法类型 | 主要字段 | 取值范围 | 备注 |
 |---------|---------|---------|------|
-| 分类 | `f1_macro`, `accuracy` | [0.0, 1.0] | 优先使用f1_macro |
+| 分类 | `f1_macro`, `accuracy` | [0.0, 1.0] | 优先使用 f1_macro |
 | 回归 | `rmse`, `mae` | [0.0, +∞) | 值越小越好 |
-| 检测 | `map`, `map_50` | [0.0, 1.0] | mAP@0.5或多阈值 |
+| 检测 | `map`, `map_50` | [0.0, 1.0] | mAP@0.5 或多阈值 |
 | 排序 | `ndcg`, `map` | [0.0, 1.0] | 信息检索指标 |
 
-#### 2.2.2 metrics 字段 (必需)
+#### metrics 字段 (必需)
 
-**用途**: 详细的评价指标数据
+详细的评价指标数据：
 
 **格式要求**:
-
 - 所有数值必须为 `number` 类型 (float/int)
 - 键名使用 `snake_case` 格式
 - 必须包含 `summary.primary_metric` 中指定的指标
@@ -171,11 +163,9 @@
 }
 ```
 
-#### 2.2.3 artifacts 字段 (可选)
+#### artifacts 字段 (可选)
 
-**用途**: 生成的文件和资源信息
-
-**标准结构**:
+生成的文件和资源信息：
 
 ```json
 {
@@ -189,7 +179,7 @@
 }
 ```
 
-**常见artifact类型**:
+**常见 artifact 类型**:
 
 | 类型 | content_type | 说明 | 示例路径 |
 |------|-------------|------|----------|
@@ -199,9 +189,9 @@
 | 检测可视化 | image/jpeg | 标注检测结果的图像 | output/detection_results.jpg |
 | 原始数据 | text/csv | 详细预测结果 | output/detailed_predictions.csv |
 
-#### 2.2.4 timing 字段 (推荐)
+#### timing 字段 (推荐)
 
-**用途**: 性能时间分析
+性能时间分析：
 
 ```json
 {
@@ -217,9 +207,9 @@
 }
 ```
 
-#### 2.2.5 resources 字段 (推荐)
+#### resources 字段 (推荐)
 
-**用途**: 资源使用统计
+资源使用统计：
 
 ```json
 {
@@ -232,9 +222,9 @@
 }
 ```
 
-#### 2.2.6 versioning 字段 (必需)
+#### versioning 字段 (必需)
 
-**用途**: 版本和可追溯性信息
+版本和可追溯性信息：
 
 | 字段名 | 类型 | 必需 | 说明 | 示例 |
 |--------|------|------|------|------|
@@ -245,9 +235,9 @@
 | `commit_hash` | string | ❌ | 代码提交哈希 | "a1b2c3d4" |
 | `environment` | object | ❌ | 运行环境信息 | 见示例 |
 
-#### 2.2.7 validation 字段 (推荐)
+#### validation 字段 (推荐)
 
-**用途**: 数据验证结果
+数据验证结果：
 
 ```json
 {
@@ -266,9 +256,9 @@
 }
 ```
 
-#### 2.2.8 error 字段 (条件必需)
+#### error 字段 (条件必需)
 
-**用途**: 错误信息，仅在出错时存在
+错误信息，仅在出错时存在：
 
 ```json
 {
@@ -283,11 +273,11 @@
 }
 ```
 
-## 3. 算法特定输出标准
+## 算法特定输出标准
 
-### 3.1 分类算法输出
+### 分类算法输出
 
-#### 3.1.1 二分类输出示例
+#### 二分类输出示例
 
 ```json
 {
@@ -315,7 +305,7 @@
 }
 ```
 
-#### 3.1.2 多分类输出示例
+#### 多分类输出示例
 
 ```json
 {
@@ -356,7 +346,7 @@
 }
 ```
 
-### 3.2 回归算法输出
+### 回归算法输出
 
 ```json
 {
@@ -395,7 +385,7 @@
 }
 ```
 
-### 3.3 检测算法输出
+### 检测算法输出
 
 ```json
 {
@@ -439,42 +429,11 @@
 }
 ```
 
-<!-- 统一API输出规范章节已在文档后半部分“3. API输出标准化”中详述，这里移除重复内容以避免歧义。 -->
+## API 输出标准
 
-## 2. 评分结果标准化要求
+### 成功响应格式
 
-### 2.1 Summary字段统一规范
-
-为确保不同算法输出的一致性，summary字段必须遵循以下规则：
-
-1. **主评分字段**: 每种算法类型必须有标准的主评分字段名
-2. **数值范围**: 明确定义每个指标的取值范围
-3. **缺失处理**: 明确如何处理无法计算的指标
-
-#### 算法类型对应的主评分字段
-
-| 算法类型 | 主评分字段 | 取值范围 | 说明 |
-|---------|-----------|---------|------|
-| 分类 | `accuracy` 或 `f1_macro` | [0.0, 1.0] | 准确率或宏平均F1 |
-| 回归 | `rmse` | [0.0, +∞) | 均方根误差，越小越好 |
-| 检测 | `map` 或 `map50` | [0.0, 1.0] | 平均精度 |
-| 排序 | `ndcg` 或 `map` | [0.0, 1.0] | 归一化折损累计增益 |
-| 聚类 | `silhouette` | [-1.0, 1.0] | 轮廓系数 |
-
-### 2.2 评分器实现标准
-
-每个评分器必须:
-
-1. 返回符合Result schema的结果
-2. 在summary中包含算法主要指标
-3. 提供versioning信息
-4. 正确处理异常并返回标准化错误
-
-## 3. API输出标准化
-
-### 3.1 成功响应格式
-
-所有API成功响应使用以下格式:
+所有 API 成功响应使用以下格式:
 
 ```json
 {
@@ -483,16 +442,16 @@
     // 具体数据内容
   },
   "meta": {
-    "timestamp": "2025-08-21T10:30:00Z",
+    "timestamp": "2024-08-21T10:30:00Z",
     "request_id": "req_123456",
-    "version": "0.1.0"
+    "version": "2.0.0"
   }
 }
 ```
 
-### 3.2 错误响应格式
+### 错误响应格式
 
-API错误响应使用标准化格式:
+API 错误响应使用标准化格式:
 
 ```json
 {
@@ -506,16 +465,16 @@ API错误响应使用标准化格式:
     }
   },
   "meta": {
-    "timestamp": "2025-08-21T10:30:00Z",
+    "timestamp": "2024-08-21T10:30:00Z",
     "request_id": "req_123456",
-    "version": "0.1.0"
+    "version": "2.0.0"
   }
 }
 ```
 
-### 3.3 主要API端点输出标准
+### 主要 API 端点输出
 
-#### 3.3.1 `/score` - 评分接口
+#### /score - 评分接口
 
 **成功响应**:
 
@@ -528,12 +487,12 @@ API错误响应使用标准化格式:
   "meta": {
     "scorer_used": "classification_f1",
     "execution_time": 1.23,
-    "timestamp": "2025-08-21T10:30:00Z"
+    "timestamp": "2024-08-21T10:30:00Z"
   }
 }
 ```
 
-#### 3.3.2 `/pipeline` - 流水线接口
+#### /pipeline - 流水线接口
 
 **成功响应**:
 
@@ -551,15 +510,15 @@ API错误响应使用标准化格式:
     }
   },
   "meta": {
-    "backend_used": "docker",
+    "executor_used": "docker",
     "scorer_used": "classification_f1",
     "total_time": 6.90,
-    "timestamp": "2025-08-21T10:30:00Z"
+    "timestamp": "2024-08-21T10:30:00Z"
   }
 }
 ```
 
-#### 3.3.3 `/scorers` - 评分器管理
+#### /scorers - 评分器管理
 
 **列表响应**:
 
@@ -574,16 +533,16 @@ API错误响应使用标准化格式:
     "watched_files": ["/path/to/file.py"]
   },
   "meta": {
-    "timestamp": "2025-08-21T10:30:00Z"
+    "timestamp": "2024-08-21T10:30:00Z"
   }
 }
 ```
 
-## 4. CLI输出标准化
+## CLI 输出标准
 
-### 4.1 成功输出格式
+### 成功输出格式
 
-CLI命令成功时输出JSON格式:
+CLI 命令成功时输出 JSON 格式:
 
 ```json
 {
@@ -592,13 +551,13 @@ CLI命令成功时输出JSON格式:
     // 命令特定数据
   },
   "execution_time": 1.23,
-  "timestamp": "2025-08-21T10:30:00Z"
+  "timestamp": "2024-08-21T10:30:00Z"
 }
 ```
 
-### 4.2 错误输出格式
+### 错误输出格式
 
-CLI命令出错时输出:
+CLI 命令出错时输出:
 
 ```json
 {
@@ -608,13 +567,13 @@ CLI命令出错时输出:
     "message": "Error description",
     "stage": "execution_stage"
   },
-  "timestamp": "2025-08-21T10:30:00Z"
+  "timestamp": "2024-08-21T10:30:00Z"
 }
 ```
 
-### 4.3 具体命令输出标准
+### 具体命令输出标准
 
-#### 4.3.1 评分命令 (`score`)
+#### 评分命令 (score)
 
 ```json
 {
@@ -625,11 +584,11 @@ CLI命令出错时输出:
   "execution_time": 1.23,
   "workspace": "/path/to/workspace",
   "scorer_used": "classification_f1",
-  "timestamp": "2025-08-21T10:30:00Z"
+  "timestamp": "2024-08-21T10:30:00Z"
 }
 ```
 
-#### 4.3.2 流水线命令 (`pipeline`)
+#### 流水线命令 (pipeline)
 
 ```json
 {
@@ -645,13 +604,13 @@ CLI命令出错时输出:
   },
   "execution_time": 6.90,
   "workspace": "/path/to/workspace",
-  "backend_used": "docker",
+  "executor_used": "docker",
   "scorer_used": "classification_f1",
-  "timestamp": "2025-08-21T10:30:00Z"
+  "timestamp": "2024-08-21T10:30:00Z"
 }
 ```
 
-#### 4.3.3 评分器管理命令 (`scorers`)
+#### 评分器管理命令 (scorers)
 
 ```json
 {
@@ -660,23 +619,23 @@ CLI命令出错时输出:
   "data": {
     // 操作特定数据
   },
-  "timestamp": "2025-08-21T10:30:00Z"
+  "timestamp": "2024-08-21T10:30:00Z"
 }
 ```
 
-## 5. 错误标准化
+## 错误标准化
 
-### 5.1 错误代码分类
+### 错误代码分类
 
 错误代码采用分级命名:
 
-- `INPUT_*`: 输入相关错误
-- `VALIDATION_*`: 校验相关错误  
-- `EXECUTION_*`: 执行相关错误
-- `SCORE_*`: 评分相关错误
-- `SYSTEM_*`: 系统相关错误
+- `VAL_*`: 输入验证相关错误
+- `EXE_*`: 执行相关错误  
+- `RES_*`: 资源相关错误
+- `SYS_*`: 系统相关错误
+- `NET_*`: 网络相关错误
 
-### 5.2 标准错误格式
+### 标准错误格式
 
 ```json
 {
@@ -691,83 +650,89 @@ CLI命令出错时输出:
 }
 ```
 
-### 5.3 常见错误代码
+### 常见错误代码
 
 | 错误代码 | 描述 | 阶段 |
 |---------|------|------|
-| `INPUT_FILE_NOT_FOUND` | 输入文件未找到 | validation |
-| `INPUT_FORMAT_INVALID` | 输入格式不正确 | validation |
-| `VALIDATION_DATA_MISMATCH` | 数据不匹配 | validation |
-| `EXECUTION_DOCKER_FAILED` | Docker执行失败 | execution |
-| `EXECUTION_TIMEOUT` | 执行超时 | execution |
-| `SCORE_ALGORITHM_ERROR` | 评分算法错误 | scoring |
-| `SCORE_METRICS_INVALID` | 指标计算无效 | scoring |
-| `SYSTEM_RESOURCE_LIMIT` | 系统资源不足 | system |
-| `SYSTEM_PERMISSION_DENIED` | 权限不足 | system |
+| `VAL_FILE_NOT_FOUND` | 输入文件未找到 | validation |
+| `VAL_FORMAT_INVALID` | 输入格式不正确 | validation |
+| `VAL_DATA_MISMATCH` | 数据不匹配 | validation |
+| `EXE_DOCKER_FAILED` | Docker 执行失败 | execution |
+| `EXE_TIMEOUT` | 执行超时 | execution |
+| `EXE_SCORER_ERROR` | 评分器错误 | scoring |
+| `RES_MEMORY_LIMIT` | 内存资源不足 | execution |
+| `SYS_PERMISSION_DENIED` | 权限不足 | system |
 
-## 6. 实施检查清单
+## 实施检查清单
 
-### 6.1 评分器检查
+### 评分器检查
 
-- [ ] summary字段包含主评分指标
+- [ ] summary 字段包含主评分指标
 - [ ] 指标名称符合算法类型标准
-- [ ] versioning信息完整
+- [ ] versioning 信息完整
 - [ ] 错误处理返回标准格式
-- [ ] 数值类型正确(float)
+- [ ] 数值类型正确 (float)
 
-### 6.2 API接口检查
+### API 接口检查
 
-- [ ] 所有响应包含ok字段
+- [ ] 所有响应包含 ok 字段
 - [ ] 错误响应格式统一
-- [ ] meta信息完整
-- [ ] 时间戳格式统一(ISO)
+- [ ] meta 信息完整
+- [ ] 时间戳格式统一 (ISO)
 
-### 6.3 CLI输出检查
+### CLI 输出检查
 
-- [ ] JSON格式输出
-- [ ] status字段明确
+- [ ] JSON 格式输出
+- [ ] status 字段明确
 - [ ] 错误信息标准化
 - [ ] 执行时间记录
 
-### 6.4 文档同步检查
+### 文档同步检查
 
-- [ ] API文档与实际输出一致
+- [ ] API 文档与实际输出一致
 - [ ] 错误代码文档完整
 - [ ] 示例输出准确
 - [ ] 版本信息同步
 
-## 7. 向后兼容性
+## 向后兼容性
 
-### 7.1 字段扩展原则
+### 字段扩展原则
 
 - 新增字段只能是可选的
 - 不能修改现有字段的数据类型
 - 不能删除现有的必需字段
 - 字段重命名需要保持别名支持
 
-### 7.2 版本管理
+### 版本管理
 
-- API版本通过header或路径控制
-- Result schema版本通过versioning字段追踪
-- 向后兼容性至少保持3个主版本
+- API 版本通过 header 或路径控制
+- Result schema 版本通过 versioning 字段追踪
+- 向后兼容性至少保持 3 个主版本
 
-## 8. 监控和质量控制
+## 监控和质量控制
 
-### 8.1 输出格式验证
+### 输出格式验证
 
 - 自动化测试验证所有输出格式
-- Schema validation集成到CI/CD
+- Schema validation 集成到 CI/CD
 - 定期审计输出一致性
 
-### 8.2 性能监控
+### 性能监控
 
 - 记录输出生成时间
 - 监控输出大小
-- 追踪format compliance率
+- 追踪 format compliance 率
 
-### 8.3 质量指标
+### 质量指标
 
 - Format compliance: >99%
 - Response time: <100ms (API)
 - Error rate: <1%
 - Schema evolution compatibility: 100%
+
+## 相关文档
+
+- **[API 参考](api-reference.md)** - 详细 API 接口文档
+- **[评分器开发](scorer-development.md)** - 评分器实现指南
+- **[错误处理](error-handling.md)** - 错误处理机制
+- **[配置管理](configuration.md)** - 输出格式配置
