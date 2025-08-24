@@ -1,0 +1,29 @@
+{
+  "summary": {
+    "rmse": 0.10000000000000009,
+    "mae": 0.10000000000000009,
+    "mse": 0.010000000000000018,
+    "timestamp": 1755766761.3091898
+  },
+  "metrics": {
+    "rmse": 0.10000000000000009,
+    "mae": 0.10000000000000009,
+    "mse": 0.010000000000000018
+  },
+  "artifacts": {
+    "metric_type": {
+      "path": "rmse_mae_mse_combo",
+      "samples": 3,
+      "hot_reload_test": true,
+      "hot_reload_version": 3
+    }
+  },
+  "timing": {},
+  "resources": {},
+  "versioning": {
+    "version": "v3.0",
+    "message": "� HOT RELOAD v3.0! Added MSE metric! Real-time update! �",
+    "scorer_version": "3.0"
+  },
+  "error": null
+}

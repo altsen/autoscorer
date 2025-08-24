@@ -1,0 +1,47 @@
+version: "3.9"
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    image: autoscorer:local
+    container_name: autoscorer_api
+    depends_on:
+      - redis
+    environment:
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+      - IMAGE_PULL_POLICY=ifnotpresent
+      # 如需连接宿主 Docker，请使用以下 DOCKER_HOST（macOS/Windows 使用不同映射方案）
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./examples:/data/examples
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    command: ["python", "-m", "autoscorer.api.run"]
+    restart: unless-stopped
+
+  worker:
+    image: autoscorer:local
+    container_name: autoscorer_worker
+    depends_on:
+      - redis
+      - api
+    environment:
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./examples:/data/examples
+    working_dir: /app
+    command: ["bash", "-lc", "PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info"]
+    restart: unless-stopped

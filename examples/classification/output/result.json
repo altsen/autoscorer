@@ -1,0 +1,25 @@
+{
+  "summary": {
+    "score": 1.0,
+    "f1_macro": 1.0,
+    "rank": "A",
+    "pass": true
+  },
+  "metrics": {
+    "f1_macro": 1.0,
+    "num_labels": 2.0,
+    "total_samples": 4.0,
+    "f1_cat": 1.0,
+    "f1_dog": 1.0
+  },
+  "artifacts": {},
+  "timing": {},
+  "resources": {},
+  "versioning": {
+    "scorer": "classification_f1",
+    "version": "2.0.0",
+    "algorithm": "F1-Score Macro Average",
+    "timestamp": "2025-08-21T11:18:03.060905+00:00"
+  },
+  "error": null
+}

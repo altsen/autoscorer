@@ -1,0 +1,56 @@
+# autoscorer 全局配置示例
+
+# Docker相关
+DOCKER_HOST: "unix:///var/run/docker.sock"  # 可改为 tcp://host:2375
+DOCKER_API_VERSION: "1.43"
+DOCKER_TLS_VERIFY: false
+DOCKER_CERT_PATH: ""
+IMAGE_PULL_POLICY: "ifnotpresent"  # always|ifnotpresent|never
+
+# 资源调度
+DEFAULT_CPU: 2
+DEFAULT_MEMORY: "4g"
+DEFAULT_GPU: 0
+DEFAULT_SHM_SIZE: "1g"
+TIMEOUT: 1800
+
+# 镜像仓库
+REGISTRY_URL: "registry.example.com"
+REGISTRY_USER: ""
+REGISTRY_PASS: ""
+
+# 路径配置
+WORKSPACE_ROOT: "./examples"
+LOG_DIR: "./logs"
+
+# 队列与worker
+CELERY_BROKER: "redis://localhost:6379/0"
+CELERY_BACKEND: "redis://localhost:6379/0"
+
+# 其他
+SECURITY_OPTS:
+  - "no-new-privileges:true"
+  - "seccomp=unconfined"
+
+# 资源池配置
+NODES:
+  - name: "node1"
+    host: "tcp://192.168.1.10:2375"
+    gpus: 2
+    labels: ["gpu", "local"]
+  - name: "node2"
+    host: "tcp://192.168.1.11:2375"
+    gpus: 4
+    labels: ["gpu", "cloud"]
+
+# K8s相关
+K8S_ENABLED: false
+K8S_API: "https://k8s.example.com:6443"
+K8S_NAMESPACE: "autoscore"
+K8S_TOKEN: ""
+K8S_CA_CERT: ""
+K8S_DEFAULT_RESOURCES:
+  cpu: "2"
+  memory: "4Gi"
+  gpu: 1
+K8S_IMAGE_PULL_SECRET: "registry-secret"

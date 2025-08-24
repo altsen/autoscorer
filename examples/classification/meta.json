@@ -1,0 +1,21 @@
+{
+  "job_id": "job-demo-001",
+  "task_type": "classification",
+  "scorer": "classification_f1",
+  "input_uri": "file://./input",
+  "output_uri": "file://./output",
+  "time_limit": 60,
+  "resources": {
+    "cpu": 1,
+    "memory": "1Gi",
+    "gpus": 0
+  },
+  "container": {
+    "image": "python:3.10-slim",
+    "cmd": [
+      "python",
+      "-c",
+      "import csv,os;os.makedirs('output',exist_ok=True);open('output/pred.csv','w').write(open('input/gt.csv').read())"
+    ]
+  }
+}

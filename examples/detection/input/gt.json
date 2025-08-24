@@ -1,0 +1,4 @@
+[
+  {"image_id": 1, "bbox": [10,10,50,50], "category_id": 1, "iscrowd": 0},
+  {"image_id": 2, "bbox": [15,15,30,30], "category_id": 1, "iscrowd": 0}
+]

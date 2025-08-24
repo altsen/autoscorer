@@ -1,0 +1,27 @@
+{
+  "summary": {
+    "score": 0.0,
+    "rmse": 0.0,
+    "rank": "A",
+    "pass": true
+  },
+  "metrics": {
+    "rmse": 0.0,
+    "mse": 0.0,
+    "mae": 0.0,
+    "r_squared": 1.0,
+    "gt_mean": 2.0,
+    "pred_mean": 2.0,
+    "n_samples": 3.0
+  },
+  "artifacts": {},
+  "timing": {},
+  "resources": {},
+  "versioning": {
+    "scorer": "regression_rmse",
+    "version": "2.0.0",
+    "algorithm": "Root Mean Square Error",
+    "timestamp": "2025-08-21T11:18:15.775559+00:00"
+  },
+  "error": null
+}
