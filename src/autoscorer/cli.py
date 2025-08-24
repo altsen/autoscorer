@@ -131,8 +131,10 @@ def score(workspace: str, params: Optional[str] = typer.Option(None, help="JSON�
         result, output_path = score_only(ws, p, scorer_override=scorer)
         execution_time = time.time() - start_time
         
+        # 标准化序列化（pydantic v2）
+        payload = result.model_dump() if hasattr(result, 'model_dump') else (result.dict() if hasattr(result, 'dict') else result)
         data = {
-            "score_result": result.dict() if hasattr(result, 'dict') else result,
+            "score_result": payload,
             "output_path": str(output_path)
         }
         

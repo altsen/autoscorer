@@ -354,18 +354,17 @@ async def api_score(req: PipelineRequest):
         result, output_path = score_only(ws, req.params or {}, scorer_override=req.scorer)
         execution_time = time.time() - start_time
         
+        payload = result.model_dump() if hasattr(result, 'model_dump') else (result.dict() if hasattr(result, 'dict') else result)
         data = {
-            "score_result": result.dict() if hasattr(result, 'dict') else result,
+            "score_result": payload,
             "output_path": str(output_path),
             "workspace": str(ws)
         }
-        
         meta = {
             "action": "score_only",
             "execution_time": execution_time,
             "scorer_used": req.scorer or "auto"
         }
-        
         return make_success_response(data, meta)
         
     except AutoscorerError as e:
