@@ -1,5 +1,6 @@
 {
   "image_requested": "python:3.10-slim",
+  "image_resolved": "python:3.10-slim",
   "image_present_local": true,
   "image_id": "sha256:420fbb0e468d3eaf0f7e93ea6f7a48792cbcadc39d43ac95b96bee2afe4367da",
   "pull_policy": "ifnotpresent",

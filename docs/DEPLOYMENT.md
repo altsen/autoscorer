@@ -1,251 +1,177 @@
 # 部署指南
 
-本文档详细说明 AutoScorer 系统的部署方法，包括 Docker 部署、Kubernetes 部署、云服务部署和运维管理。
+本指南严格依据仓库现状，提供可复制的部署方式，并指向真实可用的端点与服务。
 
-## 快速部署
+- API 服务启动：`python -m autoscorer.api.run`（或 `autoscorer-api`）
+- 健康检查端点：`GET /healthz`
+- Celery 任务模块：`celery_app.tasks`
+- 配置文件：`config.yaml`（自动搜索：CWD → 项目根 → ~/.autoscorer → /etc/autoscorer；可用 `--config-path` 指定）
 
-### Docker 单容器部署
+## 构建镜像
+
+仓库提供 `Dockerfile`，默认工作目录 `/app`。
 
 ```bash
-# 1. 拉取镜像
-docker pull autoscorer:latest
-
-# 2. 创建网络
-docker network create autoscorer-network
-
-# 3. 启动 Redis
-docker run -d \
-  --name redis \
-  --network autoscorer-network \
-  redis:7-alpine
-
-# 4. 启动 AutoScorer
-docker run -d \
-  --name autoscorer \
-  --network autoscorer-network \
-  -p 8000:8000 \
-  -e REDIS_HOST=redis \
-  -v $(pwd)/workspaces:/var/lib/autoscorer/workspaces \
-  -v $(pwd)/results:/var/lib/autoscorer/results \
-  autoscorer:latest
-
-# 5. 验证部署
-curl http://localhost:8000/health
+# 构建本地镜像
+docker build -t autoscorer:local .
 ```
 
-### Docker Compose 部署
+要点：
+
+- 已设置 `PYTHONPATH=/app/src` 便于导入包。
+
+## 单容器运行（仅 API）
+
+```bash
+# 运行 API（如果使用 Docker 执行器，需挂载宿主 docker.sock）
+docker run -d \
+  --name autoscorer_api \
+  -p 8000:8000 \
+  -e DOCKER_HOST=unix:///var/run/docker.sock \
+  -e IMAGE_PULL_POLICY=ifnotpresent \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $(pwd)/config.yaml:/app/config.yaml:ro \
+  autoscorer:local
+
+# 健康检查
+curl -s http://localhost:8000/healthz | jq .
+```
+
+说明：
+
+- 不使用 Docker 执行器时，可不挂载 `/var/run/docker.sock`。
+
+## Docker Compose（API + Redis + Worker）
+
+`docker-compose.yml` 已与实现对齐：
 
 ```yaml
-# docker-compose.yml
-version: '3.8'
-
+version: "3.9"
 services:
-  # AutoScorer 主服务
-  autoscorer:
-    image: autoscorer:latest
-    ports:
-      - "8000:8000"
-    environment:
-      # 环境配置
-      AUTOSCORER_ENV: production
-      AUTOSCORER_DEBUG: "false"
-      
-      # Redis 连接
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      
-      # 安全配置
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      AUTOSCORER_API_KEY: ${AUTOSCORER_API_KEY}
-      
-      # 存储配置
-      AUTOSCORER_WORKSPACE_PATH: /var/lib/autoscorer/workspaces
-      AUTOSCORER_RESULTS_PATH: /var/lib/autoscorer/results
-      AUTOSCORER_RESULTS_BACKEND: filesystem
-      
-      # 日志配置
-      AUTOSCORER_LOG_LEVEL: INFO
-      AUTOSCORER_LOG_FILE: /var/log/autoscorer.log
-      
-    volumes:
-      # 配置文件
-      - ./config/config.yaml:/app/config.yaml:ro
-      
-      # 数据目录
-      - autoscorer-workspaces:/var/lib/autoscorer/workspaces
-      - autoscorer-results:/var/lib/autoscorer/results
-      - autoscorer-logs:/var/log
-      
-      # 自定义评分器
-      - ./custom_scorers:/app/custom_scorers:ro
-      
-      # Docker socket (用于 Docker 执行器)
-      - /var/run/docker.sock:/var/run/docker.sock
-      
-    depends_on:
-      - redis
-      - postgres
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Celery Worker
-  worker:
-    image: autoscorer:latest
-    command: celery -A autoscorer.celery_app.worker worker --loglevel=info
-    environment:
-      # 继承主服务环境变量
-      AUTOSCORER_ENV: production
-      REDIS_HOST: redis
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
-      
-      # Worker 特定配置
-      CELERY_WORKERS: 4
-      CELERY_LOG_LEVEL: INFO
-      
-    volumes:
-      - ./config/config.yaml:/app/config.yaml:ro
-      - autoscorer-workspaces:/var/lib/autoscorer/workspaces
-      - autoscorer-results:/var/lib/autoscorer/results
-      - ./custom_scorers:/app/custom_scorers:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      
-    depends_on:
-      - redis
-      - postgres
-    restart: unless-stopped
-    deploy:
-      replicas: 2
-
-  # Celery Beat (定时任务调度器)
-  beat:
-    image: autoscorer:latest
-    command: celery -A autoscorer.celery_app.worker beat --loglevel=info
-    environment:
-      AUTOSCORER_ENV: production
-      REDIS_HOST: redis
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      
-    volumes:
-      - ./config/config.yaml:/app/config.yaml:ro
-      - celery-beat-schedule:/app/celerybeat-schedule
-      
-    depends_on:
-      - redis
-    restart: unless-stopped
-
-  # Celery Flower (监控界面)
-  flower:
-    image: autoscorer:latest
-    command: celery -A autoscorer.celery_app.worker flower --port=5555
-    ports:
-      - "5555:5555"
-    environment:
-      REDIS_HOST: redis
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      FLOWER_BASIC_AUTH: ${FLOWER_BASIC_AUTH}  # user:password
-      
-    depends_on:
-      - redis
-    restart: unless-stopped
-
-  # Redis 缓存和消息队列
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    restart: unless-stopped
     ports:
       - "6379:6379"
-    volumes:
-      - redis-data:/data
-      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
 
-  # PostgreSQL 数据库 (可选，用于结果存储)
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: autoscorer
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Nginx 反向代理 (可选)
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./config/nginx/ssl:/etc/nginx/ssl:ro
-      - nginx-logs:/var/log/nginx
+  api:
+    build: .
+    image: autoscorer:local
+    container_name: autoscorer_api
     depends_on:
-      - autoscorer
+      - redis
+    environment:
+      - PYTHONPATH=src
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+      - IMAGE_PULL_POLICY=ifnotpresent
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./examples:/data/examples
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    command: ["python", "-m", "autoscorer.api.run"]
     restart: unless-stopped
 
-volumes:
-  autoscorer-workspaces:
-    driver: local
-  autoscorer-results:
-    driver: local
-  autoscorer-logs:
-    driver: local
-  redis-data:
-    driver: local
-  postgres-data:
-    driver: local
-  celery-beat-schedule:
-    driver: local
-  nginx-logs:
-    driver: local
-
-networks:
-  default:
-    name: autoscorer-network
+  worker:
+    image: autoscorer:local
+    container_name: autoscorer_worker
+    depends_on:
+      - redis
+      - api
+    environment:
+      - CELERY_BROKER=redis://redis:6379/0
+      - CELERY_BACKEND=redis://redis:6379/0
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./examples:/data/examples
+    working_dir: /app
+    command: ["bash", "-lc", "PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info"]
+    restart: unless-stopped
 ```
 
-### 环境变量文件
+启动与验证：
 
 ```bash
-# .env
-# 安全密钥 (生产环境必须更改)
-JWT_SECRET_KEY=your-super-secret-jwt-key-change-this-in-production
-AUTOSCORER_API_KEY=your-api-key-change-this-in-production
-REDIS_PASSWORD=your-redis-password-change-this
+# 启动（包含构建）
+docker compose up -d --build
 
-# 数据库配置
-POSTGRES_USER=autoscorer
-POSTGRES_PASSWORD=your-postgres-password-change-this
+# 健康检查
+curl -s http://localhost:8000/healthz | jq .
 
-# Flower 监控认证
-FLOWER_BASIC_AUTH=admin:your-flower-password
-
-# 云服务配置 (如果使用)
-AWS_ACCESS_KEY_ID=your-aws-access-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-AUTOSCORER_S3_BUCKET=your-s3-bucket
+# 列出评分器
+curl -s http://localhost:8000/scorers | jq .
 ```
+
+提交任务：
+
+```bash
+# 同步调用（流水线）
+curl -s -X POST http://localhost:8000/pipeline \
+  -H 'Content-Type: application/json' \
+  -d '{"workspace":"/app/examples/classification"}' | jq .
+
+# 异步（Celery）
+autoscorer submit examples/classification --action pipeline
+```
+
+## 容器内配置管理
+
+配置搜索顺序：CWD → 项目根 `/app` → `~/.autoscorer` → `/etc/autoscorer`。
+
+```bash
+# 查看搜索路径与当前命中
+docker compose exec api autoscorer config paths | jq .
+```
+
+常用环境变量覆盖：
+
+- `DOCKER_HOST`、`IMAGE_PULL_POLICY`
+- `DEFAULT_CPU`、`DEFAULT_MEMORY`、`DEFAULT_GPU`、`TIMEOUT`
+
+## Kubernetes 最小化提示
+
+- 镜像推送到你的仓库，例如 `registry.example.com/autoscorer:latest`。
+- Deployment 容器命令：`python -m autoscorer.api.run`，容器端口 8000。
+- 探针示例：
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 20
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
+
+如需在 K8s 内使用容器执行，建议采用 K8s 执行器；若必须使用 Docker 执行器，需确保合规访问底层运行时（不建议直接暴露 docker.sock）。
+
+## 常见问题
+
+- 健康检查 404：使用 `/healthz`。
+- 镜像拉取失败：检查 `IMAGE_PULL_POLICY` 与镜像可用性，或在工作区放置 `image.tar`。
+- Worker 连接失败：确认 `CELERY_BROKER`/`CELERY_BACKEND` 与网络连通。
+- Docker 权限问题：检查 `/var/run/docker.sock` 挂载与容器用户权限。
+
+## 开发环境速启
+
+```bash
+pip install -e .
+autoscorer-api
+PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info
+```
+
 
 ## Kubernetes 部署
 
@@ -521,7 +447,7 @@ spec:
             cpu: 1000m
         livenessProbe:
           httpGet:
-            path: /health
+            path: /healthz
             port: 8000
           initialDelaySeconds: 30
           periodSeconds: 10
@@ -529,7 +455,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health/ready
+            path: /
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5

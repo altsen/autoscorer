@@ -13,6 +13,7 @@ services:
     depends_on:
       - redis
     environment:
+  - PYTHONPATH=src
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
       - IMAGE_PULL_POLICY=ifnotpresent
@@ -20,7 +21,7 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+  - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
     working_dir: /app
     ports:
@@ -40,7 +41,7 @@ services:
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - ./:/app
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+  - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
     working_dir: /app
     command: ["bash", "-lc", "PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info"]

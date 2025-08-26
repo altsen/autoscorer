@@ -1,9 +1,9 @@
 from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
 from datetime import datetime, timezone
 
 from autoscorer.pipeline import run_only, score_only, run_and_score
@@ -16,7 +16,11 @@ from autoscorer.scorers.registry import (
 )
 import importlib.util, os, json
 
-app = FastAPI(title="autoscorer API", version="0.1.0")
+app = FastAPI(
+    title="AutoScorer API", 
+    version="0.1.0",
+    description="AutoScorer REST API for automated scoring and evaluation"
+)
 
 
 def make_success_response(data: Any, meta: Optional[Dict] = None) -> Dict:
@@ -51,16 +55,52 @@ def make_error_response(code: str, message: str, stage: str = "api", details: Op
     }
 
 
+class RunRequest(BaseModel):
+    """Request body for /run
+
+    Fields:
+    - workspace: 工作区路径（必填）。
+    """
+    workspace: str = Field(..., description="工作区路径，包含 meta.json、input/ 与 output/ 等目录")
+
+
+class ScoreRequest(BaseModel):
+    """Request body for /score
+
+    Fields:
+    - workspace: 工作区路径（必填）。
+    - params: 评分器入参（可选），若不提供则使用默认参数；scorer 从 meta.json 读取。
+    """
+    workspace: str = Field(..., description="工作区路径")
+    params: Optional[Dict] = Field(default=None, description="评分器可选参数（覆盖默认值）")
+
+
 class PipelineRequest(BaseModel):
-    workspace: str
-    params: Optional[Dict] = None
-    backend: Optional[str] = None  # docker|k8s|auto
-    scorer: Optional[str] = None  # 可选择特定的scorer
+    """Request body for /pipeline
+
+    Fields:
+    - workspace: 工作区路径（必填）。
+    - params: 评分阶段参数（可选）。
+    说明：backend 与 scorer 均从 workspace/meta.json 解析，不再通过请求体传入。
+    """
+    workspace: str = Field(..., description="工作区路径")
+    params: Optional[Dict] = Field(default=None, description="传递给评分阶段的参数（可选）")
 
 
-class SubmitRequest(PipelineRequest):
-    action: str = "pipeline"  # run|score|pipeline
-    callback_url: Optional[str] = None  # 任务完成/失败回调
+class SubmitRequest(BaseModel):
+    """Request body for /submit (异步提交)
+
+    Fields:
+    - action: 任务类型：run|score|pipeline（默认 pipeline）
+    - workspace: 工作区路径（必填）。
+    - params: 评分阶段参数（可选，仅对 score/pipeline 有效）。
+    - callback_url: 回调地址（可选）。
+    说明：backend 与 scorer 从 meta.json 解析，不通过该接口传入。
+    """
+    action: Literal["run", "score", "pipeline"] = Field("pipeline", description="任务动作")
+    workspace: str = Field(..., description="工作区路径")
+    params: Optional[Dict] = Field(default=None, description="评分参数（可选）")
+    callback_url: Optional[str] = Field(default=None, description="任务完成/失败时回调URL（可选）")
 
 
 class TaskStatusResponse(BaseModel):
@@ -71,7 +111,38 @@ class TaskStatusResponse(BaseModel):
 
 @app.get("/healthz")
 async def healthz():
-    return make_success_response({"status": "healthy"})
+    """Health check endpoint
+
+    Response:
+    - ok: true
+    - data: { status, timestamp, version }
+    """
+    return make_success_response({
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "version": "0.1.0"
+    })
+
+
+@app.get("/")
+async def api_info():
+    """API meta info
+
+    Response: 基本信息与主要端点列表。
+    """
+    return make_success_response({
+        "name": "AutoScorer API",
+        "version": "0.1.0",
+        "description": "AutoScorer REST API for automated scoring and evaluation",
+        "endpoints": {
+            "core": ["/run", "/score", "/pipeline"],
+            "scorers": ["/scorers", "/scorers/load", "/scorers/reload", "/scorers/test", "/scorers/watch"],
+            "async": ["/submit", "/tasks/{task_id}"],
+            "results": ["/result", "/logs"],
+            "system": ["/healthz", "/"]
+        },
+        "documentation": "/docs"
+    })
 
 
 # 全局异常处理：根据开关友好打印堆栈
@@ -88,7 +159,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/scorers")
 async def list_available_scorers():
-    """列出所有可用的scorer"""
+    """List registered scorers
+
+    Response: { scorers, total, watched_files }
+    """
     try:
         scorers = list_scorers()
         watched_files = get_watched_files()
@@ -116,8 +190,19 @@ class LoadScorerRequest(BaseModel):
 
 @app.post("/scorers/load")
 async def load_scorer(req: LoadScorerRequest):
-    """加载scorer文件"""
+    """Load a scorer Python file and register scorers defined with @register
+
+    Request: { file_path, force_reload?, auto_watch? }
+    Response: 加载到的注册名与类名映射。
+    """
     try:
+        # 检查文件是否存在
+        if not Path(req.file_path).exists():
+            return JSONResponse(
+                make_error_response("FILE_NOT_FOUND", f"File not found: {req.file_path}", "scorer_loading"),
+                status_code=404
+            )
+            
         loaded = load_scorer_file(req.file_path, req.force_reload)
         
         # 如果启用自动监控，开始监控文件
@@ -148,8 +233,19 @@ async def load_scorer(req: LoadScorerRequest):
 
 @app.post("/scorers/reload")
 async def reload_scorer(req: LoadScorerRequest):
-    """重新加载scorer文件"""
+    """Reload a scorer Python file and re-register scorers
+
+    Request: { file_path }
+    Response: 重新加载到的注册名与类名映射。
+    """
     try:
+        # 检查文件是否存在
+        if not Path(req.file_path).exists():
+            return JSONResponse(
+                make_error_response("FILE_NOT_FOUND", f"File not found: {req.file_path}", "scorer_reloading"),
+                status_code=404
+            )
+            
         loaded = reload_scorer_file(req.file_path)
         
         data = {
@@ -180,7 +276,11 @@ class WatchFileRequest(BaseModel):
 
 @app.post("/scorers/watch")
 async def start_watch_file(req: WatchFileRequest):
-    """开始监控文件变化"""
+    """Start watching a file for changes (hot-reload)
+
+    Request: { file_path, check_interval? }
+    Response: 启动监控的确认信息。
+    """
     try:
         start_watching_file(req.file_path, req.check_interval)
         data = {
@@ -199,7 +299,11 @@ async def start_watch_file(req: WatchFileRequest):
 
 @app.delete("/scorers/watch")
 async def stop_watch_file(file_path: str):
-    """停止监控文件"""
+    """Stop watching a file
+
+    Query: file_path
+    Response: 停止监控的确认信息或未在监控的提示。
+    """
     try:
         success = stop_watching_file(file_path)
         if success:
@@ -222,7 +326,10 @@ async def stop_watch_file(file_path: str):
 
 @app.get("/scorers/watch")
 async def get_watched_files_api():
-    """获取正在监控的文件列表"""
+    """List watched files
+
+    Response: { watched_files, count }
+    """
     try:
         watched = get_watched_files()
         data = {
@@ -246,7 +353,11 @@ class TestScorerRequest(BaseModel):
 
 @app.post("/scorers/test")
 async def test_scorer(req: TestScorerRequest):
-    """测试指定的scorer"""
+    """Run a scorer class directly for a workspace (debug/testing)
+
+    Request: { scorer_name, workspace, params? }
+    Response: 完整 Result 对象的序列化结果。
+    """
     try:
         from autoscorer.scorers.registry import get_scorer_class
         from pathlib import Path
@@ -301,14 +412,27 @@ async def test_scorer(req: TestScorerRequest):
 
 
 @app.post("/run")
-async def api_run(req: PipelineRequest):
-    """执行推理容器"""
+async def api_run(req: RunRequest):
+    """Run inference only
+
+    Request: { workspace }
+    Behavior: backend 从 workspace/meta.json 或系统默认策略解析，本接口不再接收 backend 参数。
+    Response: { ok, stage, job_id }
+    """
     import time
     start_time = time.time()
+
+    # 验证工作区路径
     ws = Path(req.workspace)
+    if not ws.exists():
+        return JSONResponse(
+            make_error_response("WORKSPACE_NOT_FOUND", f"Workspace not found: {req.workspace}", "validation", {"workspace": str(ws)}),
+            status_code=404
+        )
     
     try:
-        result = run_only(ws, backend=req.backend)
+        # backend 由系统策略/配置决定，不通过API传入
+        result = run_only(ws, backend=None)
         execution_time = time.time() - start_time
         
         data = {
@@ -319,7 +443,7 @@ async def api_run(req: PipelineRequest):
         meta = {
             "action": "run_only",
             "execution_time": execution_time,
-            "backend_used": req.backend or "auto"
+            "backend_used": "auto"
         }
         
         return make_success_response(data, meta)
@@ -350,15 +474,27 @@ async def api_run(req: PipelineRequest):
 
 
 @app.post("/score")
-async def api_score(req: PipelineRequest):
-    """执行评分"""
+async def api_score(req: ScoreRequest):
+    """Score only
+
+    Request: { workspace, params? }
+    Behavior: scorer 从 workspace/meta.json 解析，本接口不再接收 scorer 参数。
+    Response: { score_result, output_path, workspace }
+    """
     import time
     start_time = time.time()
+
+    # 验证工作区路径
     ws = Path(req.workspace)
+    if not ws.exists():
+        return JSONResponse(
+            make_error_response("WORKSPACE_NOT_FOUND", f"Workspace not found: {req.workspace}", "validation", {"workspace": str(ws)}),
+            status_code=404
+        )
     
     try:
-        # 支持动态指定scorer
-        result, output_path = score_only(ws, req.params or {}, scorer_override=req.scorer)
+        # scorer 由 meta.json 决定
+        result, output_path = score_only(ws, req.params or {}, scorer_override=None)
         execution_time = time.time() - start_time
         
         payload = result.model_dump() if hasattr(result, 'model_dump') else (result.dict() if hasattr(result, 'dict') else result)
@@ -370,7 +506,7 @@ async def api_score(req: PipelineRequest):
         meta = {
             "action": "score_only",
             "execution_time": execution_time,
-            "scorer_used": req.scorer or "auto"
+            "scorer_used": "auto"
         }
         return make_success_response(data, meta)
         
@@ -398,13 +534,26 @@ async def api_score(req: PipelineRequest):
 
 @app.post("/pipeline")
 async def api_pipeline(req: PipelineRequest):
-    """执行完整流水线(推理+评分)"""
+    """Run inference then score (pipeline)
+
+    Request: { workspace, params? }
+    Behavior: backend & scorer 从 workspace/meta.json 解析，不再通过API传入。
+    Response: { ok, result, result_path } 或标准化错误。
+    """
     import time
     start_time = time.time()
+
+    # 验证工作区路径
     ws = Path(req.workspace)
+    if not ws.exists():
+        return JSONResponse(
+            make_error_response("WORKSPACE_NOT_FOUND", f"Workspace not found: {req.workspace}", "validation", {"workspace": str(ws)}),
+            status_code=404
+        )
 
     try:
-        result = run_and_score(ws, req.params or {}, backend=req.backend, scorer_override=req.scorer)
+        # backend/scorer 由 meta.json 决定
+        result = run_and_score(ws, req.params or {}, backend=None, scorer_override=None)
         execution_time = time.time() - start_time
         
         # 检查结果中是否有错误
@@ -427,8 +576,8 @@ async def api_pipeline(req: PipelineRequest):
         meta = {
             "action": "pipeline",
             "execution_time": execution_time,
-            "backend_used": req.backend or "auto",
-            "scorer_used": req.scorer or "auto"
+            "backend_used": "auto",
+            "scorer_used": "auto"
         }
         
         return make_success_response(data, meta)
@@ -502,21 +651,33 @@ async def get_logs(workspace: str):
 
 
 # 异步提交与任务查询（Celery）
+_celery_tasks_module_cache = None
+
 def _load_celery_tasks_module():
+    global _celery_tasks_module_cache
+    if _celery_tasks_module_cache is not None:
+        return _celery_tasks_module_cache
     root = Path(__file__).resolve().parents[3]
     tasks_path = root / "celery_app" / "tasks.py"
     spec = importlib.util.spec_from_file_location("celery_tasks", str(tasks_path))
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)  # type: ignore
+    _celery_tasks_module_cache = module
     return module
 
 
 @app.post("/submit")
 async def submit_job(req: SubmitRequest):
+    """Submit an async job via Celery
+
+    Request: { action, workspace, params?, callback_url? }
+    Behavior: backend & scorer 从 meta.json 解析；此处仅提交任务。
+    Response: { submitted, task_id, action, workspace }（若去重则返回 running=true 和已有 task_id）。
+    """
     mod = _load_celery_tasks_module()
     ws = str(Path(req.workspace))
-    action = (req.action or "pipeline").lower()
+    action = req.action.lower()
     # 去重：同一 workspace 正在运行则直接返回正在运行的任务ID
     existing_id: Optional[str] = None
     try:
@@ -538,12 +699,19 @@ async def submit_job(req: SubmitRequest):
     if existing_id:
         data = {"submitted": False, "running": True, "task_id": existing_id, "action": action, "workspace": ws}
         return make_success_response(data, {"action": "submit_dedup"})
-    if action == "run":
-        async_result = mod.run_job.delay(ws, req.backend, req.callback_url)
-    elif action == "score":
-        async_result = mod.score_job.delay(ws, req.params or {}, req.backend, req.callback_url)
-    else:
-        async_result = mod.run_and_score_job.delay(ws, req.params or {}, req.backend, req.callback_url)
+    # 通过稳定的任务名提交，避免导入名导致的不一致
+    task_name_map = {
+        "run": "autoscorer.run_job",
+        "score": "autoscorer.score_job",
+        "pipeline": "autoscorer.run_and_score_job",
+    }
+    task_name = task_name_map.get(action, "autoscorer.run_and_score_job")
+    args = {
+        "autoscorer.run_job": (ws, None, req.callback_url),
+        "autoscorer.score_job": (ws, req.params or {}, None, req.callback_url),
+        "autoscorer.run_and_score_job": (ws, req.params or {}, None, req.callback_url),
+    }[task_name]
+    async_result = mod.celery_app.send_task(task_name, args=args)
     data = {"submitted": True, "task_id": async_result.id, "action": action, "workspace": ws}
     return make_success_response(data, {"action": "submit"})
 

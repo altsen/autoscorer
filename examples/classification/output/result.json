@@ -12,14 +12,45 @@
     "f1_cat": 1.0,
     "f1_dog": 1.0
   },
-  "artifacts": {},
-  "timing": {},
+  "artifacts": {
+    "input_gt": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/input/gt.csv",
+      "size": 33,
+      "sha256": "e2d132a48d70d5d682eafa854d26fb9cfd9751f48add1802b5a67446fde8abb1"
+    },
+    "output_pred": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/pred.csv",
+      "size": 33,
+      "sha256": "e2d132a48d70d5d682eafa854d26fb9cfd9751f48add1802b5a67446fde8abb1"
+    },
+    "artifacts/confusion_matrix.json": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/artifacts/confusion_matrix.json",
+      "size": 243,
+      "sha256": "e488f6f2057124e7aa95736f497f5c48e4ba1c23bf18463b40299b37839d55bf"
+    },
+    "artifacts/error_cases.csv": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/artifacts/error_cases.csv",
+      "size": 12,
+      "sha256": "b51d6d7f94f4c032ac9d19039b63d3d3307e0c71e001708b71c969415b036964"
+    },
+    "result_json": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/result.json",
+      "size": 1563,
+      "sha256": "5982ef4f3ff81715355423f91efd8ccab7decb74b859e07d7d535c4388008cee"
+    }
+  },
+  "timing": {
+    "validate_time": 0.00043403200106695294,
+    "compute_time": 0.0013690429914277047,
+    "save_time": 0.0004524719843175262,
+    "total_time": 0.004825923009775579
+  },
   "resources": {},
   "versioning": {
     "scorer": "classification_f1",
     "version": "2.0.0",
     "algorithm": "F1-Score Macro Average",
-    "timestamp": "2025-08-24T13:13:57.061514+00:00"
+    "timestamp": "2025-08-26T05:45:27.872838+00:00"
   },
   "error": null
 }

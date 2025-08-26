@@ -1,231 +1,87 @@
 # 错误处理指南
 
-本文档详细说明 AutoScorer 系统中的错误处理机制，包括错误分类、处理策略、恢复机制和故障排查方法。
+AutoScorer 系统采用统一的错误处理机制，提供标准化的错误格式和处理流程。
 
-## 错误处理架构
+## 核心错误类
 
-### 错误分类体系
+### AutoscorerError
 
-AutoScorer 采用分层的错误处理架构，将错误按照严重程度和处理层级进行分类：
-
-```mermaid
-graph TB
-    subgraph "错误分类"
-        A[系统级错误<br/>SYSTEM]
-        B[应用级错误<br/>APPLICATION]
-        C[用户级错误<br/>USER]
-        D[临时错误<br/>TRANSIENT]
-    end
-    
-    subgraph "处理策略"
-        E[立即终止<br/>FATAL]
-        F[重试机制<br/>RETRY]
-        G[降级服务<br/>FALLBACK]
-        H[用户反馈<br/>FEEDBACK]
-    end
-    
-    subgraph "恢复机制"
-        I[自动恢复<br/>AUTO_RECOVERY]
-        J[手动干预<br/>MANUAL]
-        K[服务重启<br/>RESTART]
-        L[数据回滚<br/>ROLLBACK]
-    end
-    
-    A --> E
-    B --> F
-    C --> H
-    D --> F
-    
-    E --> K
-    F --> I
-    G --> I
-    H --> L
-    
-    style A fill:#ffebee
-    style B fill:#fff3e0
-    style C fill:#e8f5e8
-    style D fill:#e3f2fd
-```
-
-### 错误代码标准
+系统的核心错误类，所有错误都基于此类：
 
 ```python
-# src/autoscorer/utils/errors.py
-from enum import Enum
-from typing import Dict, Any, Optional
-import traceback
-import json
+@dataclass
+class AutoscorerError(Exception):
+    code: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
 
-class ErrorSeverity(Enum):
-    """错误严重程度"""
-    CRITICAL = "critical"    # 系统无法继续运行
-    HIGH = "high"           # 功能受到严重影响
-    MEDIUM = "medium"       # 部分功能受影响
-    LOW = "low"            # 轻微影响
-    INFO = "info"          # 信息性错误
+    def __str__(self) -> str:
+        return f"{self.code}: {self.message}"
+```
 
-class ErrorCategory(Enum):
-    """错误分类"""
-    SYSTEM = "system"           # 系统级错误
-    VALIDATION = "validation"   # 输入验证错误
-    EXECUTION = "execution"     # 执行错误
-    RESOURCE = "resource"       # 资源错误
-    NETWORK = "network"         # 网络错误
-    CONFIGURATION = "config"    # 配置错误
-    AUTHENTICATION = "auth"     # 认证错误
-    PERMISSION = "permission"   # 权限错误
+## 错误响应格式
 
-class AutoScorerError(Exception):
-    """AutoScorer 基础错误类"""
-    
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        category: ErrorCategory = ErrorCategory.SYSTEM,
-        severity: ErrorSeverity = ErrorSeverity.MEDIUM,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
-        retryable: bool = False,
-        user_message: Optional[str] = None
-    ):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.category = category
-        self.severity = severity
-        self.details = details or {}
-        self.cause = cause
-        self.retryable = retryable
-        self.user_message = user_message or message
-        self.timestamp = time.time()
-        self.traceback = traceback.format_exc()
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式"""
-        return {
-            'code': self.code,
-            'message': self.message,
-            'category': self.category.value,
-            'severity': self.severity.value,
-            'details': self.details,
-            'retryable': self.retryable,
-            'user_message': self.user_message,
-            'timestamp': self.timestamp,
-            'traceback': self.traceback if self.severity in [ErrorSeverity.CRITICAL, ErrorSeverity.HIGH] else None
-        }
-    
-    def to_json(self) -> str:
-        """转换为 JSON 格式"""
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+### API 错误响应
 
-# 具体错误类型
-class ValidationError(AutoScorerError):
-    """验证错误"""
-    def __init__(self, code: str, message: str, **kwargs):
-        super().__init__(
-            code=code,
-            message=message,
-            category=ErrorCategory.VALIDATION,
-            severity=ErrorSeverity.MEDIUM,
-            retryable=False,
-            **kwargs
-        )
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "错误描述",
+    "stage": "api|validation|execution|scoring",
+    "details": {}
+  },
+  "meta": {
+    "timestamp": "2024-12-01T10:00:00Z",
+    "version": "0.1.0"
+  }
+}
+```
 
-class ExecutionError(AutoScorerError):
-    """执行错误"""
-    def __init__(self, code: str, message: str, **kwargs):
-        super().__init__(
-            code=code,
-            message=message,
-            category=ErrorCategory.EXECUTION,
-            severity=ErrorSeverity.HIGH,
-            retryable=True,
-            **kwargs
-        )
+### CLI 错误响应
 
-class ResourceError(AutoScorerError):
-    """资源错误"""
-    def __init__(self, code: str, message: str, **kwargs):
-        super().__init__(
-            code=code,
-            message=message,
-            category=ErrorCategory.RESOURCE,
-            severity=ErrorSeverity.HIGH,
-            retryable=True,
-            **kwargs
-        )
-
-class ConfigurationError(AutoScorerError):
-    """配置错误"""
-    def __init__(self, code: str, message: str, **kwargs):
-        super().__init__(
-            code=code,
-            message=message,
-            category=ErrorCategory.CONFIGURATION,
-            severity=ErrorSeverity.CRITICAL,
-            retryable=False,
-            **kwargs
-        )
-
-class NetworkError(AutoScorerError):
-    """网络错误"""
-    def __init__(self, code: str, message: str, **kwargs):
-        super().__init__(
-            code=code,
-            message=message,
-            category=ErrorCategory.NETWORK,
-            severity=ErrorSeverity.MEDIUM,
-            retryable=True,
-            **kwargs
-        )
+```json
+{
+  "status": "error",
+  "error": {
+    "code": "ERROR_CODE", 
+    "message": "错误描述",
+    "stage": "cli|validation|execution"
+  },
+  "timestamp": "2024-12-01T10:00:00Z"
+}
 ```
 
 ## 常见错误代码
 
-### 系统级错误 (SYS_*)
+### 验证错误
 
-| 错误代码 | 描述 | 严重程度 | 可重试 | 处理建议 |
-|----------|------|----------|--------|----------|
-| `SYS_INIT_FAILED` | 系统初始化失败 | CRITICAL | No | 检查配置和依赖 |
-| `SYS_DB_CONNECTION_FAILED` | 数据库连接失败 | CRITICAL | Yes | 检查数据库状态 |
-| `SYS_REDIS_CONNECTION_FAILED` | Redis 连接失败 | HIGH | Yes | 检查 Redis 服务 |
-| `SYS_STORAGE_UNAVAILABLE` | 存储不可用 | HIGH | Yes | 检查存储挂载 |
-| `SYS_OUT_OF_MEMORY` | 内存不足 | CRITICAL | No | 增加内存或优化 |
-| `SYS_DISK_FULL` | 磁盘空间不足 | HIGH | No | 清理磁盘空间 |
+| 错误代码 | 描述 | 处理建议 |
+|----------|------|----------|
+| `WORKSPACE_NOT_FOUND` | 工作区不存在 | 检查路径是否正确 |
+| `INVALID_PARAMS` | 参数格式错误 | 检查JSON格式 |
+| `BAD_FORMAT` | 数据格式错误 | 检查文件格式和字段 |
+| `MISMATCH` | 数据不匹配 | 确保GT和预测数据ID一致 |
+| `MISSING_FILE` | 缺少必需文件 | 检查输入文件是否存在 |
 
-### 验证错误 (VAL_*)
+### 执行错误
 
-| 错误代码 | 描述 | 严重程度 | 可重试 | 处理建议 |
-|----------|------|----------|--------|----------|
-| `VAL_INVALID_INPUT_FORMAT` | 输入格式无效 | MEDIUM | No | 检查输入格式 |
-| `VAL_MISSING_REQUIRED_FIELD` | 缺少必需字段 | MEDIUM | No | 补充必需字段 |
-| `VAL_INVALID_SCORER_CONFIG` | 评分器配置无效 | MEDIUM | No | 修正评分器配置 |
-| `VAL_UNSUPPORTED_FILE_TYPE` | 不支持的文件类型 | MEDIUM | No | 使用支持的格式 |
-| `VAL_FILE_SIZE_EXCEEDED` | 文件大小超限 | MEDIUM | No | 减小文件大小 |
-| `VAL_SCHEMA_VALIDATION_FAILED` | 模式验证失败 | MEDIUM | No | 修正数据格式 |
+| 错误代码 | 描述 | 处理建议 |
+|----------|------|----------|
+| `IMAGE_NOT_FOUND` | Docker镜像不存在 | 检查镜像名称和版本 |
+| `CONTAINER_FAILED` | 容器执行失败 | 查看容器日志 |
+| `TIMEOUT_ERROR` | 执行超时 | 增加超时配置或优化代码 |
+| `PERMISSION_DENIED` | 权限被拒绝 | 检查文件和目录权限 |
 
-### 执行错误 (EXE_*)
+### 系统错误
 
-| 错误代码 | 描述 | 严重程度 | 可重试 | 处理建议 |
-|----------|------|----------|--------|----------|
-| `EXE_SCORER_NOT_FOUND` | 评分器未找到 | HIGH | No | 检查评分器路径 |
-| `EXE_SCORER_IMPORT_FAILED` | 评分器导入失败 | HIGH | No | 检查评分器代码 |
-| `EXE_SCORER_EXECUTION_FAILED` | 评分器执行失败 | HIGH | Yes | 检查输入数据 |
-| `EXE_TIMEOUT` | 执行超时 | MEDIUM | Yes | 增加超时时间 |
-| `EXE_CONTAINER_FAILED` | 容器执行失败 | HIGH | Yes | 检查容器配置 |
-| `EXE_PERMISSION_DENIED` | 权限被拒绝 | HIGH | No | 检查文件权限 |
-
-### 资源错误 (RES_*)
-
-| 错误代码 | 描述 | 严重程度 | 可重试 | 处理建议 |
-|----------|------|----------|--------|----------|
-| `RES_INSUFFICIENT_MEMORY` | 内存不足 | HIGH | Yes | 增加内存限制 |
-| `RES_INSUFFICIENT_CPU` | CPU 资源不足 | MEDIUM | Yes | 等待资源释放 |
-| `RES_INSUFFICIENT_DISK` | 磁盘空间不足 | HIGH | No | 清理磁盘空间 |
-| `RES_GPU_NOT_AVAILABLE` | GPU 不可用 | HIGH | Yes | 等待 GPU 释放 |
-| `RES_QUOTA_EXCEEDED` | 配额超限 | MEDIUM | Yes | 等待配额重置 |
-| `RES_WORKSPACE_LOCKED` | 工作区被锁定 | MEDIUM | Yes | 等待锁释放 |
+| 错误代码 | 描述 | 处理建议 |
+|----------|------|----------|
+| `UNHANDLED_ERROR` | 未处理的异常 | 查看详细错误信息 |
+| `LIST_ERROR` | 列表操作失败 | 检查scorer注册状态 |
+| `LOAD_ERROR` | 文件加载失败 | 检查文件路径和格式 |
+| `SUBMIT_ERROR` | 提交失败 | 检查网络连接和参数 |
 
 ## 错误处理器
 

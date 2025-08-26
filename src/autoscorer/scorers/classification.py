@@ -5,6 +5,68 @@ from autoscorer.schemas.result import Result
 from autoscorer.utils.errors import AutoscorerError
 from autoscorer.scorers.registry import register
 from autoscorer.scorers.base_csv import BaseCSVScorer
+import json
+from collections import defaultdict
+
+
+def _make_classification_artifacts(ws: Path, gt_rows: Dict[str, Dict[str, str]], pred_rows: Dict[str, Dict[str, str]], metrics: Dict[str, float]):
+    """生成分类任务的工件：
+    - confusion_matrix.json（labels与矩阵）
+    - error_cases.csv（错误样本清单）
+    - confusion_matrix.png（如可用的可视化，软依赖matplotlib）
+    """
+    out_dir = ws / "output" / "artifacts"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 统一标签表
+    labels = sorted(set(row["label"] for row in gt_rows.values()))
+    idx = {lbl: i for i, lbl in enumerate(labels)}
+    # 混淆矩阵
+    n = len(labels)
+    cm = [[0 for _ in range(n)] for _ in range(n)]
+    errors = []
+    for _id, gt in gt_rows.items():
+        g = gt["label"]
+        p = pred_rows[_id]["label"]
+        cm[idx[g]][idx[p]] += 1
+        if g != p:
+            errors.append((_id, g, p))
+
+    # 写入 confusion_matrix.json
+    (out_dir / "confusion_matrix.json").write_text(
+        json.dumps({"labels": labels, "matrix": cm, "metrics": metrics}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # 写入 error_cases.csv
+    import csv
+    with (out_dir / "error_cases.csv").open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["id", "gt", "pred"]) 
+        w.writerows(errors)
+
+    # 可选：绘制混淆矩阵图（软依赖）
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        fig, ax = plt.subplots(figsize=(max(4, n), max(3, n)))
+        im = ax.imshow(np.array(cm), cmap="Blues")
+        ax.set_xticks(range(n))
+        ax.set_yticks(range(n))
+        ax.set_xticklabels(labels, rotation=45, ha="right")
+        ax.set_yticklabels(labels)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("Ground Truth")
+        for i in range(n):
+            for j in range(n):
+                ax.text(j, i, str(cm[i][j]), ha="center", va="center", color="black")
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        fig.tight_layout()
+        fig.savefig(out_dir / "confusion_matrix.png", dpi=150)
+        plt.close(fig)
+    except Exception:
+        # 忽略绘图失败（未安装matplotlib或环境不支持）
+        pass
 
 
 @register("classification_f1")
@@ -29,7 +91,9 @@ class ClassificationF1(BaseCSVScorer):
             # 3. 计算F1指标
             metrics = self._compute_f1_metrics(gt_data, pred_data)
             
-            # 4. 标准化summary - 分类算法主评分为f1_macro
+            # 4. 特征工件
+            _make_classification_artifacts(ws, gt_data, pred_data, metrics)
+            # 5. 标准化summary - 分类算法主评分为f1_macro
             f1_score = metrics["f1_macro"]
             summary = {
                 "score": f1_score,  # 标准主评分字段
@@ -50,7 +114,7 @@ class ClassificationF1(BaseCSVScorer):
             threshold = params.get("pass_threshold", 0.8)
             summary["pass"] = f1_score >= threshold
             
-            # 5. 返回标准化结果
+            # 6. 返回标准化结果
             return Result(
                 summary=summary,
                 metrics=metrics,
@@ -73,6 +137,15 @@ class ClassificationF1(BaseCSVScorer):
                 message=f"F1 calculation failed: {str(e)}",
                 details={"algorithm": self.name, "version": self.version}
             )
+
+    # 新增：评分器自校验
+    def validate(self, workspace: Path, params: Dict) -> None:
+        ws = Path(workspace)
+        gt_path = ws / "input" / "gt.csv"
+        pred_path = ws / "output" / "pred.csv"
+        gt = self._load_and_validate_csv(gt_path, ["id", "label"])
+        pred = self._load_and_validate_csv(pred_path, ["id", "label"])
+        self._validate_data_consistency(gt, pred)
     
     def _load_ground_truth(self, workspace: Path) -> Dict[str, str]:
         """加载标准答案"""
@@ -161,8 +234,11 @@ class ClassificationAccuracy(BaseCSVScorer):
             
             # 3. 计算准确率指标
             metrics = self._compute_accuracy_metrics(gt_data, pred_data)
-            
-            # 4. 标准化summary - 分类算法主评分为accuracy
+
+            # 4. 特征工件
+            _make_classification_artifacts(ws, gt_data, pred_data, metrics)
+
+            # 5. 标准化summary - 分类算法主评分为accuracy
             accuracy = metrics["accuracy"]
             summary = {
                 "score": accuracy,  # 标准主评分字段
@@ -183,7 +259,7 @@ class ClassificationAccuracy(BaseCSVScorer):
             threshold = params.get("pass_threshold", 0.8)
             summary["pass"] = accuracy >= threshold
             
-            # 5. 返回标准化结果
+            # 6. 返回标准化结果
             return Result(
                 summary=summary,
                 metrics=metrics,
@@ -206,6 +282,15 @@ class ClassificationAccuracy(BaseCSVScorer):
                 message=f"Accuracy calculation failed: {str(e)}",
                 details={"algorithm": self.name, "version": self.version}
             )
+
+    # 新增：评分器自校验
+    def validate(self, workspace: Path, params: Dict) -> None:
+        ws = Path(workspace)
+        gt_path = ws / "input" / "gt.csv"
+        pred_path = ws / "output" / "pred.csv"
+        gt = self._load_and_validate_csv(gt_path, ["id", "label"])
+        pred = self._load_and_validate_csv(pred_path, ["id", "label"])
+        self._validate_data_consistency(gt, pred)
     
     def _load_ground_truth(self, workspace: Path) -> Dict[str, str]:
         """加载标准答案"""

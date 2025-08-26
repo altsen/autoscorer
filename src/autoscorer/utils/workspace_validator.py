@@ -120,74 +120,65 @@ def _validate_memory_format(memory_str: str) -> bool:
 
 
 def validate_data_format(workspace: Path, task_type: str) -> dict:
-    """验证数据格式是否符合任务类型要求"""
+    """[DEPRECATED] 统一数据校验已废弃，交由各评分器自行校验。
+
+    现阶段仅进行最基本的存在性检查，避免重复实现和维护压力。
+    """
     result = {"ok": True, "errors": []}
     ws = Path(workspace)
-    
-    if task_type in ["classification", "regression"]:
-        # 检查CSV格式
-        gt_path = ws / "input" / "gt.csv"
-        pred_path = ws / "output" / "pred.csv"
-        
-        # 检查gt.csv
-        csv_result = _validate_csv_format(gt_path, "gt.csv")
-        if not csv_result["ok"]:
-            result["ok"] = False
-            result["errors"].extend(csv_result["errors"])
-        
-        # 检查pred.csv (如果存在)
-        if pred_path.exists():
-            csv_result = _validate_csv_format(pred_path, "pred.csv")
-            if not csv_result["ok"]:
+    # 基础存在性（如果 input 与 output 目录存在，视作通过；细节交由评分器处理）
+    if not (ws / "input").exists():
+        result["ok"] = False
+        result["errors"].append("MISSING_FILE: input/")
+    if not (ws / "output").exists():
+        # output 可在运行时创建，但这里保持一致性提示
+        (ws / "output").mkdir(parents=True, exist_ok=True)
+    return result
+
+
+def _validate_csv_id_only(path: Path, filename: str) -> dict:
+    """验证CSV文件至少包含 id 列，适用于文本任务。
+
+    - 检查文件存在与可解析
+    - 检查是否包含 id 列
+    - 检查是否有重复 id
+    - 检查至少一行数据
+    """
+    result = {"ok": True, "errors": []}
+    if not path.exists():
+        result["ok"] = False
+        result["errors"].append(f"MISSING_FILE: {filename}")
+        return result
+    try:
+        import csv
+        with path.open('r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames:
                 result["ok"] = False
-                result["errors"].extend(csv_result["errors"])
-            
-            # 检查ID一致性
-            try:
-                gt_ids = _get_csv_ids(gt_path)
-                pred_ids = _get_csv_ids(pred_path)
-                
-                if gt_ids != pred_ids:
-                    missing_in_pred = gt_ids - pred_ids
-                    extra_in_pred = pred_ids - gt_ids
-                    
-                    if missing_in_pred:
-                        result["ok"] = False
-                        result["errors"].append(f"MISMATCH: IDs missing in pred.csv: {sorted(list(missing_in_pred))[:5]}...")
-                    if extra_in_pred:
-                        result["ok"] = False
-                        result["errors"].append(f"MISMATCH: Extra IDs in pred.csv: {sorted(list(extra_in_pred))[:5]}...")
-                        
-            except Exception as e:
+                result["errors"].append(f"BAD_FORMAT: {filename} has no header")
+                return result
+            if "id" not in reader.fieldnames:
                 result["ok"] = False
-                result["errors"].append(f"MISMATCH: Failed to compare IDs: {e}")
-        
-        # 对于回归任务，检查label是否为数值
-        if task_type == "regression":
-            try:
-                _validate_regression_labels(gt_path)
-                if pred_path.exists():
-                    _validate_regression_labels(pred_path)
-            except Exception as e:
+                result["errors"].append(f"BAD_FORMAT: {filename} must contain id column")
+                return result
+            ids = set()
+            row_count = 0
+            for row in reader:
+                row_count += 1
+                if row["id"] in ids:
+                    result["ok"] = False
+                    result["errors"].append(f"MISMATCH: Duplicate ID in {filename}: {row['id']}")
+                    break
+                ids.add(row["id"])
+            if row_count == 0:
                 result["ok"] = False
-                result["errors"].append(f"TYPE_ERROR: {e}")
-    
-    elif task_type == "detection":
-        # 检查JSON格式
-        gt_path = ws / "input" / "gt.json"
-        pred_path = ws / "output" / "pred.json"
-        
-        json_result = _validate_json_format(gt_path, "gt.json")
-        if not json_result["ok"]:
-            result["ok"] = False
-            result["errors"].extend(json_result["errors"])
-        
-        if pred_path.exists():
-            json_result = _validate_json_format(pred_path, "pred.json")
-            if not json_result["ok"]:
-                result["ok"] = False
-                result["errors"].extend(json_result["errors"])
-    
+                result["errors"].append(f"BAD_FORMAT: {filename} contains no data rows")
+    except UnicodeDecodeError:
+        result["ok"] = False
+        result["errors"].append(f"BAD_FORMAT: {filename} encoding error, must be UTF-8")
+    except Exception as e:
+        result["ok"] = False
+        result["errors"].append(f"PARSE_ERROR: {filename} parsing failed: {e}")
     return result
 
 

@@ -6,6 +6,7 @@ from autoscorer.schemas.result import Result
 from autoscorer.utils.errors import AutoscorerError
 from autoscorer.scorers.registry import register
 from autoscorer.scorers.base_csv import BaseCSVScorer
+import json
 
 
 @register("regression_rmse")
@@ -29,6 +30,8 @@ class RegressionRMSE(BaseCSVScorer):
             
             # 3. 计算RMSE指标
             metrics = self._compute_rmse_metrics(gt_data, pred_data)
+            # 3.1 工件：残差与散点（CSV/可选PNG）
+            self._make_regression_artifacts(ws, gt_data, pred_data, metrics)
             
             # 4. 标准化summary - 回归算法主评分为rmse (注意：越小越好)
             rmse = metrics["rmse"]
@@ -164,3 +167,35 @@ class RegressionRMSE(BaseCSVScorer):
         }
         
         return metrics
+
+    def _make_regression_artifacts(self, ws: Path, gt: Dict[str, float], pred: Dict[str, float], metrics: Dict[str, float]):
+        out_dir = ws / "output" / "artifacts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # 残差文件
+        import csv
+        rows = []
+        for k in gt:
+            rows.append((k, gt[k], pred[k], pred[k] - gt[k]))
+        with (out_dir / "residuals.csv").open("w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["id", "gt", "pred", "residual"])
+            w.writerows(rows)
+        # 汇总指标
+        (out_dir / "summary.json").write_text(
+            json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        # 可选绘图
+        try:
+            import matplotlib.pyplot as plt  # type: ignore
+            xs = list(range(len(rows)))
+            res = [r[3] for r in rows]
+            plt.figure(figsize=(6,3))
+            plt.plot(xs, res, marker='o', linestyle='-')
+            plt.title('Residuals')
+            plt.xlabel('index')
+            plt.ylabel('residual')
+            plt.tight_layout()
+            plt.savefig(out_dir / 'residuals.png', dpi=150)
+            plt.close()
+        except Exception:
+            pass

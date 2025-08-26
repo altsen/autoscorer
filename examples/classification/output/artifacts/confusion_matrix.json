@@ -1,0 +1,23 @@
+{
+  "labels": [
+    "cat",
+    "dog"
+  ],
+  "matrix": [
+    [
+      2,
+      0
+    ],
+    [
+      0,
+      2
+    ]
+  ],
+  "metrics": {
+    "f1_macro": 1.0,
+    "num_labels": 2,
+    "total_samples": 4,
+    "f1_cat": 1.0,
+    "f1_dog": 1.0
+  }
+}

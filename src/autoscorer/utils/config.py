@@ -16,17 +16,15 @@ class Config:
     
     def _load_config(self):
         """加载配置文件"""
-        # 查找配置文件的路径
-        if not self.path.exists():
-            # 尝试项目根目录
-            alt = Path(__file__).resolve().parents[3] / "config.yaml"
-            if alt.exists():
-                self.path = alt
-                logger.info(f"Using config file: {self.path}")
-            else:
-                logger.warning(f"Config file not found: {self.path}, using defaults")
-                self.data = {}
-                return
+        # 智能查找配置文件路径
+        config_path = self._find_config_file()
+        
+        if config_path is None:
+            logger.warning(f"Config file not found: {self.path}, using defaults")
+            self.data = {}
+            return
+        
+        self.path = config_path
         
         try:
             self.data = yaml.safe_load(self.path.read_text(encoding='utf-8'))
@@ -39,6 +37,42 @@ class Config:
         except Exception as e:
             logger.error(f"Error loading config {self.path}: {e}")
             self.data = {}
+    
+    def _find_config_file(self) -> Optional[Path]:
+        """智能查找配置文件路径"""
+        # 1. 如果指定的路径是绝对路径，直接使用
+        if self.path.is_absolute():
+            if self.path.exists():
+                return self.path
+            else:
+                return None
+        
+        # 2. 如果指定的路径是相对路径，先检查当前工作目录
+        cwd_path = Path.cwd() / self.path
+        if cwd_path.exists():
+            return cwd_path
+        
+        # 3. 检查项目根目录（从源代码目录向上查找）
+        project_root = Path(__file__).resolve().parents[3]
+        project_config = project_root / self.path.name
+        if project_config.exists():
+            return project_config
+        
+        # 4. 检查用户主目录
+        home_config = Path.home() / f".autoscorer/{self.path.name}"
+        if home_config.exists():
+            return home_config
+        
+        # 5. 检查系统配置目录
+        system_config = Path("/etc/autoscorer") / self.path.name
+        if system_config.exists():
+            return system_config
+        
+        return None
+    
+    def get_config_path(self) -> str:
+        """获取当前使用的配置文件路径"""
+        return str(self.path)
     
     def get(self, key: str, default: Any = None) -> Any:
         """获取配置值，环境变量优先级高于配置文件"""
@@ -150,6 +184,36 @@ class Config:
             else:
                 result[key] = value
         return result
+
+
+# 静态方法用于配置文件路径查找
+def get_config_search_paths(config_name: str = "config.yaml") -> List[str]:
+    """获取配置文件的搜索路径列表"""
+    paths = []
+    
+    # 1. 当前工作目录
+    paths.append(str(Path.cwd() / config_name))
+    
+    # 2. 项目根目录
+    project_root = Path(__file__).resolve().parents[3]
+    paths.append(str(project_root / config_name))
+    
+    # 3. 用户主目录
+    paths.append(str(Path.home() / f".autoscorer/{config_name}"))
+    
+    # 4. 系统配置目录
+    paths.append(f"/etc/autoscorer/{config_name}")
+    
+    return paths
+
+
+def find_config_file(config_name: str = "config.yaml") -> Optional[str]:
+    """查找配置文件，返回第一个存在的路径"""
+    for path_str in get_config_search_paths(config_name):
+        path = Path(path_str)
+        if path.exists():
+            return str(path)
+    return None
 
 
 # 全局配置实例

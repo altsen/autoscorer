@@ -1,0 +1,69 @@
+{
+  "summary": {
+    "score": 0.23233556437805442,
+    "factual_consistency": 0.18302398593862185,
+    "semantic_consistency": 0.16666666666666666,
+    "coverage": 0.21145833333333333,
+    "readability": 0.6683430333593902,
+    "rank": "D",
+    "pass": false
+  },
+  "metrics": {
+    "rouge1_p": 0.36904761904761907,
+    "rouge1_r": 0.21145833333333333,
+    "rouge1_f": 0.26825266611977033,
+    "rouge2_p": 0.125,
+    "rouge2_r": 0.067853170189099,
+    "rouge2_f": 0.08778966131907308,
+    "rougeL_p": 0.33779761904761907,
+    "rougeL_r": 0.19479166666666667,
+    "rougeL_f": 0.24651353568498768,
+    "lcs_len": 6.0,
+    "lcs_ratio": 0.19479166666666667,
+    "semantic_jaccard": 0.16666666666666666,
+    "chrf": 0.050928159015939244,
+    "semantic_consistency": 0.16666666666666666,
+    "coverage": 0.21145833333333333,
+    "avg_sentence_length": 17.5,
+    "distinct_1": 0.9449404761904762,
+    "distinct_2": 1.0,
+    "repeat_2gram": 0.0,
+    "repeat_3gram": 0.0,
+    "readability": 0.6683430333593902,
+    "factual_consistency": 0.18302398593862185,
+    "repetition_penalty": 0.0,
+    "composite_score": 0.23233556437805442,
+    "samples": 2.0
+  },
+  "artifacts": {
+    "input_gt": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/text_event/input/gt.csv",
+      "size": 205,
+      "sha256": "6cea161c058512ead63be7c59263b5dd7c3e8c21c0bbe69a59ae654d954bc90a"
+    },
+    "output_pred": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/text_event/output/pred.csv",
+      "size": 127,
+      "sha256": "ed70c7c173a744dbad212c3c9a0132c8c88131ed1b843f7d4480dd91254bd355"
+    },
+    "result_json": {
+      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/text_event/output/result.json",
+      "size": 1979,
+      "sha256": "d381c5201255576c8b51404b021d25ca17cf5fb67bf0707a4594122d3a8f1ab3"
+    }
+  },
+  "timing": {
+    "validate_time": 0.0012715530028799549,
+    "compute_time": 0.0018193569994764403,
+    "save_time": 0.0004230149934301153,
+    "total_time": 1.940071494987933
+  },
+  "resources": {},
+  "versioning": {
+    "scorer": "text_event_analysis",
+    "version": "1.0.0",
+    "algorithm": "Text Event Analysis (ROUGE/LCS/Jaccard/chrF + repetition)",
+    "timestamp": "2025-08-26T04:55:45.770743+00:00"
+  },
+  "error": null
+}

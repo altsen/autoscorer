@@ -11,9 +11,10 @@ from autoscorer.scorers.registry import get_scorer, load_scorer_directory, get_s
 from autoscorer import scorers as _builtin_scorers  # noqa: F401
 from autoscorer.utils.errors import AutoscorerError, make_error
 from autoscorer.utils.logger import get_logger
+from autoscorer.utils.artifacts import ArtifactManager
 
 logger = get_logger("pipeline")
-from autoscorer.utils.workspace_validator import validate_workspace, validate_data_format
+from autoscorer.utils.workspace_validator import validate_workspace
 
 
 def run_only(workspace: Path, backend: Optional[str] = None) -> Dict:
@@ -52,6 +53,11 @@ def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: 
     """执行评分，返回标准化Result与result.json路径。"""
     ws = workspace.resolve()
     spec = JobSpec.from_workspace(ws)
+    import time
+    t0 = time.perf_counter()
+    t_validate = 0.0
+    t_compute = 0.0
+    t_save = 0.0
     
     # 如果指定了scorer_override，使用它覆盖meta.json中的设置
     if scorer_override:
@@ -74,20 +80,6 @@ def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: 
             except Exception as e:
                 logger.warning(f"Failed to load custom scorers from {custom_dir}: {e}")
     
-    # 数据格式校验
-    data_validation = validate_data_format(ws, spec.task_type)
-    if not data_validation["ok"]:
-        errors = data_validation["errors"]
-        first_error = errors[0]
-        if ":" in first_error:
-            code, message = first_error.split(":", 1)
-            code = code.strip()
-            message = message.strip()
-        else:
-            code = "DATA_VALIDATION_ERROR"
-            message = first_error
-        raise AutoscorerError(code=code, message=message, details={"all_errors": errors})
-    
     # 获取scorer（可能是内置的也可能是自定义的）
     try:
         scorer = get_scorer(spec.scorer)
@@ -105,19 +97,81 @@ def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: 
             )
         scorer = scorer_cls()
         logger.info(f"Using scorer class: {spec.scorer} -> {scorer_cls.__name__}")
-    
-    result: Result = scorer.score(ws, params or {})
-    out = ws / "output" / "result.json"
+    # 评分器自校验（若实现了 validate 方法）
     try:
-        payload_json = result.model_dump_json(indent=2)  # pydantic v2
+        if hasattr(scorer, "validate") and callable(getattr(scorer, "validate")):
+            logger.info("Running scorer-specific validation ...")
+            v0 = time.perf_counter()
+            scorer.validate(ws, params or {})
+            t_validate = time.perf_counter() - v0
+    except AutoscorerError:
+        raise
+    except Exception as e:
+        raise AutoscorerError(code="DATA_VALIDATION_ERROR", message=str(e))
+
+    # 评分计算
+    c0 = time.perf_counter()
+    result: Result = scorer.score(ws, params or {})
+    t_compute = time.perf_counter() - c0
+    out = ws / "output" / "result.json"
+    # 合并 timing（以流水线观测为主，保留评分器已有的 timing 字段）
+    timing = {}
+    try:
+        # 兼容 v1/v2
+        timing = dict(getattr(result, "timing", {}) or {})
     except Exception:
-        try:
-            import json as _json
-            payload_json = _json.dumps(result.dict(), ensure_ascii=False, indent=2)  # pydantic v1
-        except Exception:
-            import json as _json
-            payload_json = _json.dumps(getattr(result, "__dict__", {}), ensure_ascii=False, indent=2)
-    out.write_text(payload_json)
+        timing = {}
+    timing.update({
+        "validate_time": t_validate,
+        "compute_time": t_compute,
+    })
+    # 构建 artifacts（通用输入输出文件 + artifacts目录收集）
+    input_gt = ws / "input" / "gt.csv"
+    if not input_gt.exists():
+        input_gt = ws / "input" / "gt.json"
+    output_pred = ws / "output" / "pred.csv"
+    if not output_pred.exists():
+        output_pred = ws / "output" / "pred.json"
+    artifacts = {}
+    if input_gt.exists():
+        artifacts["input_gt"] = ArtifactManager.file_info(input_gt)
+    if output_pred.exists():
+        artifacts["output_pred"] = ArtifactManager.file_info(output_pred)
+    # 收集 output/artifacts 下的常见文件
+    art_dir = ws / "output" / "artifacts"
+    dir_items = ArtifactManager.collect_dir(art_dir, patterns=("*.json", "*.csv", "*.txt", "*.png", "*.svg"))
+    for name, info in dir_items.items():
+        artifacts[f"artifacts/{name}"] = info
+    # 预先写一次（若评分器未包含 timing/artifacts，避免覆盖）
+    try:
+        data = result.model_dump()
+    except Exception:
+        data = getattr(result, "dict", lambda: getattr(result, "__dict__", {}))()
+    # 合并已有 artifacts
+    existing_artifacts = dict(data.get("artifacts", {}) or {})
+    existing_artifacts.update(artifacts)
+    data["artifacts"] = existing_artifacts
+    data["timing"] = timing
+    # 保存 result.json
+    import json as _json
+    s0 = time.perf_counter()
+    out.write_text(_json.dumps(data, ensure_ascii=False, indent=2))
+    t_save = time.perf_counter() - s0
+    # 追加 result.json 自身文件信息
+    existing_artifacts["result_json"] = ArtifactManager.file_info(out)
+    data["artifacts"] = existing_artifacts
+    # 更新 total_time
+    total_time = (time.perf_counter() - t0)
+    data["timing"]["save_time"] = t_save
+    data["timing"]["total_time"] = total_time
+    # 覆盖写入，确保 timing/artifacts 完整
+    out.write_text(_json.dumps(data, ensure_ascii=False, indent=2))
+    # 回组 Result 对象
+    try:
+        result = Result(**data)
+    except Exception:
+        # 回退：返回原始 result，但文件已含完整信息
+        pass
     return result, out
 
 

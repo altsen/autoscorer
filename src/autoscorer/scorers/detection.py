@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Tuple
 import json
 from autoscorer.schemas.result import Result
 from autoscorer.utils.errors import AutoscorerError
@@ -35,6 +35,13 @@ class DetectionMAP(BaseCSVScorer):
             
             # 3. 计算mAP指标
             metrics = self._compute_map_metrics(gt_data, pred_data, params)
+
+            # 3.1 生成检测任务工件（PR曲线、IoU分布、匹配明细）
+            try:
+                self._make_detection_artifacts(ws, gt_data, pred_data, params)
+            except Exception:
+                # 工件生成失败不影响主流程
+                pass
             
             # 4. 标准化summary - 检测算法主评分为mAP
             map_score = metrics["mAP"]
@@ -80,6 +87,13 @@ class DetectionMAP(BaseCSVScorer):
                 message=f"mAP calculation failed: {str(e)}",
                 details={"algorithm": self.name, "version": self.version}
             )
+
+    # 新增：评分器自校验
+    def validate(self, workspace: Path, params: Dict) -> None:
+        ws = Path(workspace)
+        gt = self._load_ground_truth(ws)
+        pred = self._load_predictions(ws)
+        self._validate_detection_data(gt, pred)
     
     def _load_ground_truth(self, workspace: Path) -> List[Dict]:
         """加载标准答案JSON"""
@@ -250,6 +264,138 @@ class DetectionMAP(BaseCSVScorer):
         }
         
         return metrics
+
+    def _make_detection_artifacts(self, ws: Path, gt_data: List[Dict], pred_data: List[Dict], params: Dict):
+        """生成检测任务的通用工件到 output/artifacts
+        - pr_curves.json: 每类的precision-recall数组
+        - iou_hist.json: 匹配IoU的直方图（JSON）
+        - matches.csv: 逐预测的匹配明细（image_id, category_id, score, iou, matched）
+        """
+        out_dir = ws / "output" / "artifacts"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        iou_threshold = params.get("iou_threshold", 0.5)
+        score_threshold = params.get("score_threshold", 0.0)
+
+        # 分组
+        gt_by_image: Dict[str, List[Dict]] = {}
+        pred_by_image: Dict[str, List[Dict]] = {}
+        for item in gt_data:
+            gt_by_image.setdefault(item["image_id"], []).append(item)
+        for item in pred_data:
+            if item.get("score", 0) >= score_threshold:
+                pred_by_image.setdefault(item["image_id"], []).append(item)
+
+        # 类别集合
+        categories = sorted(set([d["category_id"] for d in gt_data] + [d["category_id"] for d in pred_data]))
+
+        # 1) PR 曲线（每类）
+        pr_curves: Dict[str, Dict[str, List[float]]] = {}
+        for cid in categories:
+            precisions, recalls = self._precision_recall_curve_for_category(gt_by_image, pred_by_image, cid)
+            pr_curves[str(cid)] = {"precision": precisions, "recall": recalls}
+
+        (out_dir / "pr_curves.json").write_text(
+            json.dumps({
+                "iou_threshold": iou_threshold,
+                "score_threshold": score_threshold,
+                "per_class": pr_curves
+            }, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+        # 2) 匹配明细与IoU分布
+        import csv
+        ious: List[float] = []
+        with (out_dir / "matches.csv").open("w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["image_id", "category_id", "score", "iou", "matched"]) 
+            for cid in categories:
+                # 复制一份与 _compute_ap_for_category 相同的匹配逻辑
+                gt_boxes = []
+                pred_boxes = []
+                for image_id in gt_by_image:
+                    for gt in gt_by_image[image_id]:
+                        if gt["category_id"] == cid:
+                            gt_boxes.append((image_id, gt["bbox"]))
+                for image_id in pred_by_image:
+                    for pred in pred_by_image[image_id]:
+                        if pred["category_id"] == cid:
+                            pred_boxes.append((image_id, pred["bbox"], float(pred.get("score", 0))))
+                if not pred_boxes:
+                    continue
+                pred_boxes.sort(key=lambda x: x[2], reverse=True)
+                matched_gt = set()
+                for pred_image_id, pred_bbox, pred_score in pred_boxes:
+                    best_iou = 0.0
+                    best_gt_idx = -1
+                    for i, (gt_image_id, gt_bbox) in enumerate(gt_boxes):
+                        if gt_image_id == pred_image_id and i not in matched_gt:
+                            iou = self._compute_iou(pred_bbox, gt_bbox)
+                            if iou > best_iou:
+                                best_iou = iou
+                                best_gt_idx = i
+                    matched = best_iou >= iou_threshold and best_gt_idx >= 0
+                    if matched:
+                        matched_gt.add(best_gt_idx)
+                        ious.append(best_iou)
+                    w.writerow([pred_image_id, cid, pred_score, round(best_iou, 6), matched])
+
+        # IoU 直方图（JSON）
+        bins = [i/20 for i in range(21)]  # 0.0, 0.05, ..., 1.0
+        counts = [0 for _ in range(len(bins)-1)]
+        for v in ious:
+            # 找到区间
+            for i in range(len(bins)-1):
+                if bins[i] <= v < bins[i+1] or (v == 1.0 and i == len(bins)-2):
+                    counts[i] += 1
+                    break
+        (out_dir / "iou_hist.json").write_text(
+            json.dumps({"bins": bins, "counts": counts, "matched_total": len(ious)}, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+
+    def _precision_recall_curve_for_category(self, gt_by_image: Dict, pred_by_image: Dict, category_id: int) -> Tuple[List[float], List[float]]:
+        """生成单类的PR曲线点集（沿预测置信度降序逐点统计）"""
+        gt_boxes = []
+        pred_boxes = []
+        for image_id in gt_by_image:
+            for gt in gt_by_image[image_id]:
+                if gt["category_id"] == category_id:
+                    gt_boxes.append((image_id, gt["bbox"]))
+        for image_id in pred_by_image:
+            for pred in pred_by_image[image_id]:
+                if pred["category_id"] == category_id:
+                    pred_boxes.append((image_id, pred["bbox"], float(pred.get("score", 0))))
+        if not pred_boxes:
+            return [], []
+        pred_boxes.sort(key=lambda x: x[2], reverse=True)
+        tp = 0
+        fp = 0
+        matched_gt = set()
+        precisions: List[float] = []
+        recalls: List[float] = []
+        # 采用默认IoU阈值0.5（与 _compute_ap_for_category 保持一致调用层面)
+        iou_threshold = 0.5
+        for pred_image_id, pred_bbox, pred_score in pred_boxes:
+            best_iou = 0.0
+            best_gt_idx = -1
+            for i, (gt_image_id, gt_bbox) in enumerate(gt_boxes):
+                if gt_image_id == pred_image_id and i not in matched_gt:
+                    iou = self._compute_iou(pred_bbox, gt_bbox)
+                    if iou > best_iou:
+                        best_iou = iou
+                        best_gt_idx = i
+            if best_iou >= iou_threshold:
+                tp += 1
+                matched_gt.add(best_gt_idx)
+            else:
+                fp += 1
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / len(gt_boxes) if len(gt_boxes) > 0 else 0.0
+            precisions.append(precision)
+            recalls.append(recall)
+        return precisions, recalls
     
     def _compute_ap_for_category(self, gt_by_image: Dict, pred_by_image: Dict, 
                                 category_id: int, iou_threshold: float) -> float:

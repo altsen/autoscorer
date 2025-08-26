@@ -1,0 +1,17 @@
+{
+  "job_id": "text-event-demo-001",
+  "task_type": "text", 
+  "scorer": "text_event_analysis",
+  "input_uri": "file://./input",
+  "output_uri": "file://./output",
+  "time_limit": 60,
+  "resources": {"cpu": 1, "memory": "1Gi", "gpus": 0},
+  "container": {
+    "image": "python:3.10-slim",
+    "cmd": [
+      "python",
+      "-c",
+      "import csv,os;os.makedirs('output',exist_ok=True);open('output/pred.csv','w',encoding='utf-8').write(open('output/pred.csv','r',encoding='utf-8').read() if os.path.exists('output/pred.csv') else \"id,report\n1,今天天气晴朗，适合开展社区活动。\n2,报告指出项目进展顺利，后续将进行用户测试。\n\")"
+    ]
+  }
+}

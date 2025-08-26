@@ -49,13 +49,32 @@ def make_cli_error(code: str, message: str, stage: str = "cli", details: Optiona
 
 
 import importlib.util
-app = typer.Typer(help="autoscorer CLI")
+# AutoScorer CLI Application
+app = typer.Typer(
+    name="autoscorer",
+    help="AutoScorer - 自动化评分系统",
+    rich_markup_mode="rich",
+    no_args_is_help=True
+)
 
 @app.command()
-def submit(workspace: str, action: str = typer.Option("run", help="run|score|pipeline"), params: Optional[str] = None):
-    """提交任务到 Celery 队列（run 或 score）。"""
+def submit(workspace: str, 
+           action: str = typer.Option("run", help="执行动作: run|score|pipeline"), 
+           params: Optional[str] = typer.Option(None, help="JSON字符串，评分器参数")):
+    """提交异步任务到 Celery 队列"""
     try:
         ws = Path(workspace)
+        if not ws.exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "validation", {"workspace": str(ws)}))
+            return
+            
+        # 解析参数
+        try:
+            p = json.loads(params) if params else {}
+        except json.JSONDecodeError as e:
+            print(make_cli_error("INVALID_PARAMS", f"Invalid JSON params: {str(e)}", "validation", {"params": params}))
+            return
+            
         # 动态导入 celery_app.tasks
         spec = importlib.util.spec_from_file_location(
             "celery_tasks",
@@ -63,45 +82,60 @@ def submit(workspace: str, action: str = typer.Option("run", help="run|score|pip
         celery_tasks = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(celery_tasks)
         
-        if action == "run":
-            result = celery_tasks.run_job.delay(str(ws))
-            data = {"submitted": True, "task_id": result.id, "action": "run"}
-        elif action == "score":
-            p = json.loads(params) if params else {}
-            result = celery_tasks.score_job.delay(str(ws), p)
-            data = {"submitted": True, "task_id": result.id, "action": "score", "params": p}
-        elif action == "pipeline":
-            p = json.loads(params) if params else {}
-            result = celery_tasks.run_and_score_job.delay(str(ws), p)
-            data = {"submitted": True, "task_id": result.id, "action": "pipeline", "params": p}
-        else:
-            print(make_cli_error("INVALID_ACTION", "action must be run, score, or pipeline"))
+        task_name_map = {
+            "run": "autoscorer.run_job",
+            "score": "autoscorer.score_job",
+            "pipeline": "autoscorer.run_and_score_job",
+        }
+        if action not in task_name_map:
+            print(make_cli_error("INVALID_ACTION", f"Invalid action '{action}'. Use: run|score|pipeline", "validation"))
             return
+        task_name = task_name_map[action]
+        args_map = {
+            "autoscorer.run_job": (str(ws), None, None),
+            "autoscorer.score_job": (str(ws), p, None, None),
+            "autoscorer.run_and_score_job": (str(ws), p, None, None),
+        }
+        result = celery_tasks.celery_app.send_task(task_name, args=args_map[task_name])
+        data = {"submitted": True, "task_id": result.id, "action": action, "params": p}
             
         print(make_cli_success(data, workspace=str(ws)))
         
     except Exception as e:
-        print(make_cli_error("SUBMIT_ERROR", str(e)))
+        print(make_cli_error("SUBMIT_ERROR", str(e), "async_submission", {"workspace": workspace}))
 
 
 @app.command()
 def validate(workspace: str):
-    """校验标准工作区结构与 meta.json。"""
+    """验证工作区结构与 meta.json 配置文件"""
     try:
         ws = Path(workspace)
+        if not ws.exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "validation", {"workspace": str(ws)}))
+            return
+            
         spec = JobSpec.from_workspace(ws)
-        data = {"validated": True, "job_id": spec.job_id, "task_type": spec.task_type}
+        data = {
+            "validated": True, 
+            "job_id": spec.job_id, 
+            "task_type": spec.task_type,
+            "workspace_path": str(ws.resolve())
+        }
         print(make_cli_success(data, workspace=str(ws)))
     except Exception as e:
-        print(make_cli_error("VALIDATION_ERROR", str(e), "validation"))
+        print(make_cli_error("VALIDATION_ERROR", str(e), "validation", {"workspace": workspace}))
 
 
 @app.command()
-def run(workspace: str, backend: str = typer.Option("docker", help="docker|k8s|auto")):
-    """运行选手镜像完成推理阶段（仅执行容器，不评分）。"""
+def run(workspace: str, backend: str = typer.Option("docker", help="执行后端: docker|k8s|auto")):
+    """执行推理容器，生成预测结果（不包含评分）"""
     start_time = time.time()
     try:
         ws = Path(workspace)
+        if not ws.exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "validation", {"workspace": str(ws)}))
+            return
+            
         from autoscorer.pipeline import run_only
         
         result = run_only(ws, backend)
@@ -116,18 +150,29 @@ def run(workspace: str, backend: str = typer.Option("docker", help="docker|k8s|a
         ))
         
     except AutoscorerError as e:
-        print(make_cli_error(e.code, e.message, "execution"))
+        print(make_cli_error(e.code, e.message, "execution", {"workspace": workspace}))
     except Exception as e:
-        print(make_cli_error("RUN_ERROR", str(e), "execution"))
+        print(make_cli_error("RUN_ERROR", str(e), "execution", {"workspace": workspace}))
 
 
 @app.command()
-def score(workspace: str, params: Optional[str] = typer.Option(None, help="JSON字符串，传入给评分器"), scorer: Optional[str] = typer.Option(None, help="指定使用的scorer")):
-    """对 output 下的预测结果进行评分并生成 result.json。"""
+def score(workspace: str, 
+          params: Optional[str] = typer.Option(None, help="JSON字符串，评分器参数"), 
+          scorer: Optional[str] = typer.Option(None, help="指定使用的评分器名称")):
+    """对现有预测结果进行评分并生成 result.json"""
     start_time = time.time()
     try:
         ws = Path(workspace)
-        p: Dict = json.loads(params) if params else {}
+        if not ws.exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "validation", {"workspace": str(ws)}))
+            return
+            
+        # 解析参数
+        try:
+            p: Dict = json.loads(params) if params else {}
+        except json.JSONDecodeError as e:
+            print(make_cli_error("INVALID_PARAMS", f"Invalid JSON params: {str(e)}", "validation", {"params": params}))
+            return
         
         from autoscorer.pipeline import score_only
         result, output_path = score_only(ws, p, scorer_override=scorer)
@@ -148,21 +193,30 @@ def score(workspace: str, params: Optional[str] = typer.Option(None, help="JSON�
         ))
         
     except AutoscorerError as e:
-        print(make_cli_error(e.code, e.message, "scoring"))
+        print(make_cli_error(e.code, e.message, "scoring", {"workspace": workspace}))
     except Exception as e:
-        print(make_cli_error("SCORE_ERROR", str(e), "scoring"))
+        print(make_cli_error("SCORE_ERROR", str(e), "scoring", {"workspace": workspace}))
 
 
 @app.command()
 def pipeline(workspace: str,
-             backend: str = typer.Option("docker", help="docker|k8s|auto"),
-             params: Optional[str] = typer.Option(None, help="JSON字符串，传入给评分器"),
-             scorer: Optional[str] = typer.Option(None, help="指定使用的scorer")):
-    """运行推理并在成功后立即执行评分（同步流水线）。"""
+             backend: str = typer.Option("docker", help="执行后端: docker|k8s|auto"),
+             params: Optional[str] = typer.Option(None, help="JSON字符串，评分器参数"),
+             scorer: Optional[str] = typer.Option(None, help="指定使用的评分器名称")):
+    """执行完整的推理+评分流水线"""
     start_time = time.time()
     try:
         ws = Path(workspace)
-        p: Dict = json.loads(params) if params else {}
+        if not ws.exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "validation", {"workspace": str(ws)}))
+            return
+            
+        # 解析参数
+        try:
+            p: Dict = json.loads(params) if params else {}
+        except json.JSONDecodeError as e:
+            print(make_cli_error("INVALID_PARAMS", f"Invalid JSON params: {str(e)}", "validation", {"params": params}))
+            return
         
         result = pipeline_run_and_score(ws, p, backend, scorer_override=scorer)
         execution_time = time.time() - start_time
@@ -178,35 +232,41 @@ def pipeline(workspace: str,
         ))
         
     except AutoscorerError as e:
-        print(make_cli_error(e.code, e.message, "pipeline"))
+        print(make_cli_error(e.code, e.message, "pipeline", {"workspace": workspace}))
     except Exception as e:
-        print(make_cli_error("PIPELINE_ERROR", str(e), "pipeline"))
+        print(make_cli_error("PIPELINE_ERROR", str(e), "pipeline", {"workspace": workspace}))
 
 
 @app.command()
-def scorers(action: str = typer.Argument(help="list|load|reload|test"), 
-           file_path: Optional[str] = typer.Option(None, help="Python文件路径"),
-           scorer_name: Optional[str] = typer.Option(None, help="Scorer名称"),
-           workspace: Optional[str] = typer.Option(None, help="测试工作空间")):
-    """管理scorer: list(列出), load(加载), reload(重载), test(测试)"""
+def scorers(action: str = typer.Argument(help="子命令: list|load|reload|test"), 
+           file_path: Optional[str] = typer.Option(None, help="Python评分器文件路径"),
+           scorer_name: Optional[str] = typer.Option(None, help="评分器名称"),
+           workspace: Optional[str] = typer.Option(None, help="测试工作空间路径")):
+    """评分器管理：列出、加载、重载和测试评分器"""
     from autoscorer.scorers.registry import (
         list_scorers, load_scorer_file, reload_scorer_file, 
         get_scorer_class, start_watching_file, get_watched_files
     )
     
     if action == "list":
-        scorers = list_scorers()
-        watched = get_watched_files()
-        data = {
-            "scorers": scorers,
-            "total": len(scorers),
-            "watched_files": watched
-        }
-        print(make_cli_success(data, action="scorers_list"))
+        try:
+            scorers = list_scorers()
+            watched = get_watched_files()
+            data = {
+                "scorers": scorers,
+                "total": len(scorers),
+                "watched_files": watched
+            }
+            print(make_cli_success(data, action="scorers_list"))
+        except Exception as e:
+            print(make_cli_error("LIST_ERROR", str(e), "scorers"))
     
     elif action == "load":
         if not file_path:
-            print(make_cli_error("INVALID_ARGS", "file_path is required for load action", stage="scorers"))
+            print(make_cli_error("MISSING_ARGUMENT", "file_path is required for load action", "scorers"))
+            return
+        if not Path(file_path).exists():
+            print(make_cli_error("FILE_NOT_FOUND", f"File not found: {file_path}", "scorers", {"file_path": file_path}))
             return
         try:
             loaded = load_scorer_file(file_path)
@@ -220,11 +280,14 @@ def scorers(action: str = typer.Argument(help="list|load|reload|test"),
             }
             print(make_cli_success(data, action="scorers_load"))
         except Exception as e:
-            print(make_cli_error("LOAD_ERROR", str(e), stage="scorers", details={"file_path": file_path}))
+            print(make_cli_error("LOAD_ERROR", str(e), "scorers", {"file_path": file_path}))
     
     elif action == "reload":
         if not file_path:
-            print(make_cli_error("INVALID_ARGS", "file_path is required for reload action", stage="scorers"))
+            print(make_cli_error("MISSING_ARGUMENT", "file_path is required for reload action", "scorers"))
+            return
+        if not Path(file_path).exists():
+            print(make_cli_error("FILE_NOT_FOUND", f"File not found: {file_path}", "scorers", {"file_path": file_path}))
             return
         try:
             loaded = reload_scorer_file(file_path)
@@ -235,17 +298,20 @@ def scorers(action: str = typer.Argument(help="list|load|reload|test"),
             }
             print(make_cli_success(data, action="scorers_reload"))
         except Exception as e:
-            print(make_cli_error("RELOAD_ERROR", str(e), stage="scorers", details={"file_path": file_path}))
+            print(make_cli_error("RELOAD_ERROR", str(e), "scorers", {"file_path": file_path}))
     
     elif action == "test":
         if not scorer_name or not workspace:
-            print(make_cli_error("INVALID_ARGS", "scorer_name and workspace are required for test action", stage="scorers"))
+            print(make_cli_error("MISSING_ARGUMENT", "scorer_name and workspace are required for test action", "scorers"))
+            return
+        if not Path(workspace).exists():
+            print(make_cli_error("WORKSPACE_NOT_FOUND", f"Workspace not found: {workspace}", "scorers", {"workspace": workspace}))
             return
         try:
             scorer_cls = get_scorer_class(scorer_name)
             if scorer_cls is None:
                 available = list(list_scorers().keys())
-                print(make_cli_error("SCORER_NOT_FOUND", f"Scorer '{scorer_name}' not found", stage="scorers", details={"available": available}))
+                print(make_cli_error("SCORER_NOT_FOUND", f"Scorer '{scorer_name}' not found", "scorers", {"available": available}))
                 return
             
             ws = Path(workspace)
@@ -261,18 +327,36 @@ def scorers(action: str = typer.Argument(help="list|load|reload|test"),
             }
             print(make_cli_success(data, action="scorers_test", workspace=str(ws)))
         except Exception as e:
-            print(make_cli_error("TEST_ERROR", str(e), stage="scorers", details={"scorer": scorer_name, "workspace": workspace}))
+            print(make_cli_error("TEST_ERROR", str(e), "scorers", {"scorer": scorer_name, "workspace": workspace}))
     
     else:
-        print(make_cli_error("INVALID_ACTION", f"Unknown action: {action}. Use: list|load|reload|test", stage="scorers"))
+        print(make_cli_error("INVALID_ACTION", f"Unknown action: {action}. Use: list|load|reload|test", "scorers"))
 
 
 @app.command()
-def config(action: str = typer.Argument(help="show|validate|dump"), 
-          config_path: Optional[str] = typer.Option(None, help="配置文件路径")):
-    """配置管理: show(显示), validate(验证), dump(导出)"""
+def config(action: str = typer.Argument(help="子命令: show|validate|dump|paths"), 
+          config_path: Optional[str] = typer.Option(None, help="自定义配置文件路径")):
+    """配置管理：显示、验证和导出配置"""
     try:
-        from autoscorer.utils.config import Config
+        from autoscorer.utils.config import Config, get_config_search_paths, find_config_file
+        
+        if action == "paths":
+            # 显示配置文件搜索路径
+            search_paths = get_config_search_paths()
+            current_config = find_config_file()
+            
+            paths_info = {
+                "search_paths": search_paths,
+                "current_config": current_config,
+                "search_order": [
+                    "1. 当前工作目录",
+                    "2. 项目根目录", 
+                    "3. 用户主目录 (~/.autoscorer/)",
+                    "4. 系统配置目录 (/etc/autoscorer/)"
+                ]
+            }
+            print(make_cli_success(paths_info))
+            return
         
         cfg = Config(config_path) if config_path else Config()
         
@@ -288,7 +372,7 @@ def config(action: str = typer.Argument(help="show|validate|dump"),
             for key in key_configs:
                 config_data[key] = cfg.get(key)
             
-            print(make_cli_success(config_data, config_file=str(cfg.path)))
+            print(make_cli_success(config_data, config_file=cfg.get_config_path()))
             
         elif action == "validate":
             # 验证配置
@@ -296,20 +380,21 @@ def config(action: str = typer.Argument(help="show|validate|dump"),
             if errors:
                 print(make_cli_error("CONFIG_VALIDATION_ERROR", 
                                    f"Found {len(errors)} configuration errors", 
-                                   details={"errors": errors}))
+                                   "config_management",
+                                   {"errors": errors}))
             else:
-                print(make_cli_success({"validation": "passed"}, config_file=str(cfg.path)))
+                print(make_cli_success({"validation": "passed"}, config_file=cfg.get_config_path()))
                 
         elif action == "dump":
             # 导出配置（隐藏敏感信息）
             config_dump = cfg.dump()
-            print(make_cli_success(config_dump, config_file=str(cfg.path)))
+            print(make_cli_success(config_dump, config_file=cfg.get_config_path()))
             
         else:
-            print(make_cli_error("INVALID_ACTION", f"Unknown action: {action}. Use: show|validate|dump"))
+            print(make_cli_error("INVALID_ACTION", f"Unknown action: {action}. Use: show|validate|dump|paths", "config_management"))
             
     except Exception as e:
-        print(make_cli_error("CONFIG_ERROR", str(e), "config_management"))
+        print(make_cli_error("CONFIG_ERROR", str(e), "config_management", {"config_path": config_path}))
 
 
 if __name__ == "__main__":

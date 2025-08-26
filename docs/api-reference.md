@@ -9,17 +9,15 @@ AutoScorer API 是基于 REST 的 HTTP API，使用 JSON 进行数据交换。AP
 ### 基础信息
 
 - **Base URL**: `http://localhost:8000`
-- **API Version**: `v1`
+- **API Version**: `0.1.0`
 - **Content-Type**: `application/json`
-- **Authentication**: API Key (可选)
 
 ### API 特性
 
 - **统一响应格式**: 所有响应都使用标准化的格式
 - **错误处理**: 详细的错误码和消息
-- **版本控制**: 支持 API 版本管理
 - **异步支持**: 长时间运行的任务支持异步处理
-- **批量操作**: 支持批量提交和查询
+- **热重载**: 支持评分器热重载和文件监控
 
 ## 通用规范
 
@@ -47,16 +45,14 @@ User-Agent: autoscorer-client/1.0.0
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
     // 具体数据内容
   },
   "meta": {
     "timestamp": "2024-08-24T10:00:00Z",
-    "request_id": "req_abc123",
-    "api_version": "v1"
-  },
-  "errors": []  // 仅在出错时存在
+    "version": "0.1.0"
+  }
 }
 ```
 
@@ -64,20 +60,20 @@ User-Agent: autoscorer-client/1.0.0
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "job_id": "job-001",
-    "status": "completed",
     "result": {
       "summary": {
         "score": 0.85
       }
-    }
+    },
+    "workspace": "/path/to/workspace"
   },
   "meta": {
     "timestamp": "2024-08-24T10:00:00Z",
-    "request_id": "req_abc123",
-    "api_version": "v1"
+    "version": "0.1.0",
+    "action": "pipeline",
+    "execution_time": 45.6
   }
 }
 ```
@@ -86,24 +82,20 @@ User-Agent: autoscorer-client/1.0.0
 
 ```json
 {
-  "success": false,
-  "data": null,
+  "ok": false,
+  "error": {
+    "code": "INVALID_PARAMETER",
+    "message": "Invalid scorer name",
+    "stage": "api",
+    "details": {
+      "provided": "invalid_scorer",
+      "available": ["classification_f1", "regression_rmse"]
+    }
+  },
   "meta": {
     "timestamp": "2024-08-24T10:00:00Z",
-    "request_id": "req_abc123",
-    "api_version": "v1"
-  },
-  "errors": [
-    {
-      "code": "INVALID_PARAMETER",
-      "message": "Invalid scorer name",
-      "field": "scorer",
-      "details": {
-        "provided": "invalid_scorer",
-        "available": ["classification_f1", "regression_rmse"]
-      }
-    }
-  ]
+    "version": "0.1.0"
+  }
 }
 ```
 
@@ -131,119 +123,90 @@ User-Agent: autoscorer-client/1.0.0
 检查系统是否正常运行。
 
 ```http
-GET /health
+GET /healthz
 ```
 
 **响应示例:**
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "status": "healthy",
+    "status": "healthy"
+  },
+  "meta": {
     "timestamp": "2025-08-24T10:00:00Z",
-    "version": "2.0.0",
-    "uptime": "2 days, 14:30:25",
-    "components": {
-      "redis": "healthy",
-      "docker": "healthy",
-      "k8s": "unavailable"
-    }
+    "version": "0.1.0"
   }
 }
 ```
 
-### 系统状态
+## 核心执行 API
 
-获取详细的系统状态信息。
+### 执行推理
 
-```http
-GET /api/v1/status
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "system": {
-      "version": "2.0.0",
-      "uptime": "2 days, 14:30:25",
-      "environment": "production"
-    },
-    "metrics": {
-      "total_jobs": 1250,
-      "active_jobs": 15,
-      "completed_jobs": 1180,
-      "failed_jobs": 55,
-      "success_rate": 0.956
-    },
-    "resources": {
-      "cpu_usage": 0.65,
-      "memory_usage": 0.78,
-      "disk_usage": 0.45
-    },
-    "executors": {
-      "docker": {
-        "status": "healthy",
-        "active_containers": 8,
-        "available_cores": 16,
-        "available_memory": "32Gi"
-      },
-      "k8s": {
-        "status": "unavailable",
-        "reason": "cluster not configured"
-      }
-    }
-  }
-}
-```
-
-## 任务管理 API
-
-### 提交任务
-
-提交新的评分任务。
+执行推理容器，生成预测结果。
 
 ```http
-POST /api/v1/jobs
+POST /run
 ```
 
 **请求体:**
 
 ```json
 {
-  "job_id": "job-demo-001",
-  "task_type": "classification",
-  "scorer": "classification_f1",
-  "workspace_path": "/path/to/workspace",
-  "executor": "docker",  // 可选，自动选择
-  "async": true,         // 可选，默认 false
-  "config": {            // 可选，覆盖默认配置
-    "time_limit": 1800,
-    "resources": {
-      "cpu": 2.0,
-      "memory": "4Gi",
-      "gpus": 0
-    },
-    "scorer_params": {
-      "average": "macro"
-    }
+  "workspace": "/path/to/workspace",
+  "backend": "docker",  // 可选: docker|k8s|auto
+  "params": {}          // 可选: 额外参数
+}
+```
+
+**响应示例:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "run_result": "执行成功",
+    "workspace": "/path/to/workspace"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "run_only",
+    "execution_time": 45.6,
+    "backend_used": "docker"
   }
 }
 ```
 
-**响应示例 (同步):**
+### 执行评分
+
+对现有预测结果进行评分。
+
+```http
+POST /score
+```
+
+**请求体:**
 
 ```json
 {
-  "success": true,
+  "workspace": "/path/to/workspace",
+  "scorer": "classification_f1",  // 可选: 指定评分器
+  "params": {                     // 可选: 评分器参数
+    "average": "macro"
+  }
+}
+```
+
+**响应示例:**
+
+```json
+{
+  "ok": true,
   "data": {
-    "job_id": "job-demo-001",
-    "status": "completed",
-    "execution_time": 45.6,
-    "result": {
+    "score_result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
@@ -251,320 +214,69 @@ POST /api/v1/jobs
       },
       "metrics": {
         "f1_macro": 0.85,
-        "accuracy": 0.88,
-        "precision": 0.83,
-        "recall": 0.87
-      },
-      "timing": {
-        "total_time": 45.6,
-        "inference_time": 42.1,
-        "scoring_time": 3.5
-      },
-      "versioning": {
-        "scorer": "classification_f1",
-        "version": "2.0.0",
-        "timestamp": "2024-08-24T10:00:00Z"
+        "accuracy": 0.88
       }
-    }
+    },
+    "output_path": "/path/to/workspace/output/result.json",
+    "workspace": "/path/to/workspace"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "score_only",
+    "execution_time": 3.5,
+    "scorer_used": "classification_f1"
   }
 }
 ```
 
-**响应示例 (异步):**
+### 执行完整流水线
 
-```json
-{
-  "success": true,
-  "data": {
-    "job_id": "job-demo-001",
-    "status": "submitted",
-    "message": "Job submitted for async processing",
-    "estimated_completion": "2024-08-24T10:15:00Z"
-  }
-}
-```
-
-### 批量提交任务
-
-批量提交多个任务。
+执行推理+评分的完整流水线。
 
 ```http
-POST /api/v1/jobs/batch
+POST /pipeline
 ```
 
 **请求体:**
 
 ```json
 {
-  "jobs": [
-    {
-      "job_id": "job-001",
-      "task_type": "classification",
-      "scorer": "classification_f1",
-      "workspace_path": "/path/to/workspace1"
-    },
-    {
-      "job_id": "job-002", 
-      "task_type": "regression",
-      "scorer": "regression_rmse",
-      "workspace_path": "/path/to/workspace2"
-    }
-  ],
-  "async": true,
-  "max_parallel": 5  // 可选，最大并行数
-}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "batch_id": "batch-001",
-    "submitted_jobs": 2,
-    "status": "processing",
-    "jobs": [
-      {
-        "job_id": "job-001",
-        "status": "submitted"
-      },
-      {
-        "job_id": "job-002",
-        "status": "submitted"
-      }
-    ]
+  "workspace": "/path/to/workspace",
+  "backend": "docker",            // 可选: 执行后端
+  "scorer": "classification_f1",  // 可选: 指定评分器
+  "params": {                     // 可选: 评分器参数
+    "average": "macro"
   }
 }
 ```
 
-### 查询任务状态
-
-查询特定任务的状态信息。
-
-```http
-GET /api/v1/jobs/{job_id}/status
-```
-
 **响应示例:**
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "job_id": "job-demo-001",
-    "status": "running",
-    "progress": 0.75,
-    "created_at": "2024-08-24T10:00:00Z",
-    "started_at": "2024-08-24T10:00:30Z",
-    "estimated_completion": "2024-08-24T10:15:00Z",
-    "executor": "docker",
-    "resources": {
-      "cpu_usage": 1.8,
-      "memory_usage": "3.2Gi",
-      "gpu_usage": 0
-    },
-    "logs_available": true
-  }
-}
-```
-
-### 获取任务结果
-
-获取已完成任务的详细结果。
-
-```http
-GET /api/v1/jobs/{job_id}/result
-```
-
-**查询参数:**
-- `include_artifacts`: 是否包含产物文件信息 (boolean)
-- `include_logs`: 是否包含日志信息 (boolean)
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "job_id": "job-demo-001",
-    "status": "completed",
-    "result": {
+    "pipeline_result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
-        "pass": true,
-        "message": "Evaluation completed successfully"
+        "pass": true
       },
       "metrics": {
         "f1_macro": 0.85,
-        "f1_micro": 0.88,
-        "precision_macro": 0.83,
-        "recall_macro": 0.87,
-        "accuracy": 0.88,
-        "confusion_matrix": [[45, 5], [8, 42]]
-      },
-      "artifacts": {
-        "confusion_matrix": {
-          "path": "/workspace/output/artifacts/confusion_matrix.png",
-          "size": 1024,
-          "type": "image/png"
-        }
-      },
-      "timing": {
-        "total_time": 45.6,
-        "data_loading": 1.2,
-        "inference_time": 42.1,
-        "scoring_time": 3.5
-      },
-      "resources": {
-        "peak_cpu": 1.95,
-        "peak_memory": "3.8Gi",
-        "total_disk_io": "50MB"
-      },
-      "versioning": {
-        "scorer": "classification_f1",
-        "version": "2.0.0",
-        "autoscorer_version": "2.0.0",
-        "timestamp": "2024-08-24T10:00:00Z"
+        "accuracy": 0.88
       }
     },
-    "logs": [
-      {
-        "timestamp": "2024-08-24T10:00:30Z",
-        "level": "INFO",
-        "message": "Starting evaluation process"
-      },
-      {
-        "timestamp": "2024-08-24T10:01:15Z", 
-        "level": "INFO",
-        "message": "Evaluation completed successfully"
-      }
-    ]
-  }
-}
-```
-
-### 获取任务日志
-
-获取任务执行日志。
-
-```http
-GET /api/v1/jobs/{job_id}/logs
-```
-
-**查询参数:**
-- `level`: 日志级别过滤 (debug|info|warning|error)
-- `since`: 开始时间 (ISO 8601 格式)
-- `tail`: 返回最后 N 行 (integer)
-- `follow`: 是否流式输出 (boolean)
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "job_id": "job-demo-001",
-    "logs": [
-      {
-        "timestamp": "2024-08-24T10:00:30Z",
-        "level": "INFO",
-        "component": "executor",
-        "message": "Starting container execution"
-      },
-      {
-        "timestamp": "2024-08-24T10:00:45Z",
-        "level": "DEBUG",
-        "component": "scorer",
-        "message": "Loading ground truth data: 1000 samples"
-      },
-      {
-        "timestamp": "2024-08-24T10:01:10Z",
-        "level": "INFO",
-        "component": "scorer", 
-        "message": "F1 score calculation completed: 0.85"
-      }
-    ],
-    "total_lines": 156,
-    "has_more": true
-  }
-}
-```
-
-### 取消任务
-
-取消正在运行或排队的任务。
-
-```http
-DELETE /api/v1/jobs/{job_id}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "job_id": "job-demo-001",
-    "status": "cancelled",
-    "cancelled_at": "2024-08-24T10:05:00Z",
-    "reason": "User requested cancellation"
-  }
-}
-```
-
-### 列出所有任务
-
-获取任务列表。
-
-```http
-GET /api/v1/jobs
-```
-
-**查询参数:**
-- `status`: 状态过滤 (submitted|running|completed|failed|cancelled)
-- `task_type`: 任务类型过滤 (classification|regression|detection)
-- `scorer`: 评分器过滤
-- `limit`: 返回数量限制 (默认 50)
-- `offset`: 偏移量 (默认 0)
-- `sort`: 排序字段 (created_at|updated_at|job_id)
-- `order`: 排序方向 (asc|desc)
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "jobs": [
-      {
-        "job_id": "job-demo-001",
-        "status": "completed",
-        "task_type": "classification",
-        "scorer": "classification_f1",
-        "created_at": "2024-08-24T10:00:00Z",
-        "completed_at": "2024-08-24T10:01:15Z",
-        "execution_time": 45.6,
-        "score": 0.85
-      },
-      {
-        "job_id": "job-demo-002",
-        "status": "running",
-        "task_type": "regression",
-        "scorer": "regression_rmse",
-        "created_at": "2024-08-24T10:02:00Z",
-        "started_at": "2024-08-24T10:02:30Z",
-        "progress": 0.45
-      }
-    ],
-    "pagination": {
-      "total": 1250,
-      "limit": 50,
-      "offset": 0,
-      "has_next": true,
-      "has_prev": false
-    }
+    "workspace": "/path/to/workspace"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "pipeline",
+    "execution_time": 48.1,
+    "backend_used": "docker",
+    "scorer_used": "classification_f1"
   }
 }
 ```
@@ -576,199 +288,33 @@ GET /api/v1/jobs
 获取系统中可用的评分器列表。
 
 ```http
-GET /api/v1/scorers
+GET /scorers
 ```
-
-**查询参数:**
-- `task_type`: 按任务类型过滤
-- `format`: 返回格式 (json|table)
-- `include_details`: 是否包含详细信息
 
 **响应示例:**
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "name": "classification_f1",
-      "version": "2.0.0",
-      "description": "F1-score for classification tasks",
-      "task_type": "classification",
-      "supported_formats": ["csv"],
-      "parameters": {
-        "average": {
-          "type": "string",
-          "default": "macro",
-          "choices": ["macro", "micro", "weighted"],
-          "description": "Averaging strategy for F1 calculation"
-        },
-        "labels": {
-          "type": "array",
-          "default": null,
-          "description": "List of labels to include in calculation"
-        }
-      },
-      "created_at": "2024-08-24T09:00:00Z",
-      "last_used": "2024-08-24T10:00:00Z",
-      "usage_count": 1205
-    },
-    {
-      "name": "regression_rmse",
-      "version": "2.0.0", 
-      "description": "Root Mean Square Error for regression tasks",
-      "task_type": "regression",
-      "supported_formats": ["csv"],
-      "parameters": {
-        "sample_weight": {
-          "type": "array",
-          "default": null,
-          "description": "Sample weights for weighted RMSE"
-        }
-      },
-      "created_at": "2024-08-24T09:00:00Z",
-      "last_used": "2024-08-24T09:45:00Z",
-      "usage_count": 856
-    }
-  ]
-}
-```
-
-### 获取评分器详情
-
-获取特定评分器的详细信息。
-
-```http
-GET /api/v1/scorers/{scorer_name}
-```
-
-**查询参数:**
-- `version`: 指定版本号
-- `include_examples`: 是否包含使用示例
-
-**响应示例:**
-
-```json
-{
-  "success": true,
+  "ok": true,
   "data": {
-    "name": "classification_f1",
-    "version": "2.0.0",
-    "description": "F1-score calculation for multi-class classification tasks with support for different averaging strategies",
-    "task_type": "classification",
-    "supported_formats": ["csv"],
-    "author": "AutoScorer Team",
-    "documentation": "https://docs.autoscorer.com/scorers/classification_f1",
-    "parameters": {
-      "average": {
-        "type": "string",
-        "default": "macro",
-        "choices": ["macro", "micro", "weighted"],
-        "description": "Averaging strategy for F1 calculation",
-        "required": false
+    "scorers": {
+      "classification_f1": {
+        "name": "classification_f1", 
+        "description": "F1-score for classification tasks",
+        "task_type": "classification"
       },
-      "labels": {
-        "type": "array",
-        "default": null,
-        "description": "List of labels to include in calculation. If None, all labels are used",
-        "required": false
-      },
-      "sample_weight": {
-        "type": "array", 
-        "default": null,
-        "description": "Sample weights for weighted calculations",
-        "required": false
+      "regression_rmse": {
+        "name": "regression_rmse",
+        "description": "Root Mean Square Error for regression tasks", 
+        "task_type": "regression"
       }
     },
-    "input_format": {
-      "gt_file": "input/gt.csv",
-      "pred_file": "output/pred.csv",
-      "required_columns": ["id", "label"],
-      "data_types": {
-        "id": "string|integer",
-        "label": "string|integer"
-      }
-    },
-    "output_format": {
-      "primary_metric": "f1_macro",
-      "additional_metrics": [
-        "f1_micro", "f1_weighted", 
-        "precision_macro", "recall_macro", 
-        "accuracy"
-      ]
-    },
-    "examples": [
-      {
-        "name": "Basic usage",
-        "description": "Standard F1 calculation with macro averaging",
-        "parameters": {
-          "average": "macro"
-        },
-        "expected_output": {
-          "f1_macro": 0.85,
-          "accuracy": 0.88
-        }
-      }
-    ],
-    "created_at": "2024-08-24T09:00:00Z",
-    "updated_at": "2024-08-24T09:00:00Z",
-    "last_used": "2024-08-24T10:00:00Z",
-    "usage_count": 1205,
-    "success_rate": 0.995
-  }
-}
-```
-
-### 测试评分器
-
-测试评分器在指定工作区上的运行效果。
-
-```http
-POST /api/v1/scorers/{scorer_name}/test
-```
-
-**请求体:**
-
-```json
-{
-  "workspace_path": "/path/to/test/workspace",
-  "parameters": {
-    "average": "macro",
-    "labels": ["A", "B", "C"]
+    "total": 2,
+    "watched_files": []
   },
-  "validate_only": false  // 仅验证不执行
-}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "scorer": "classification_f1",
-    "test_status": "passed",
-    "execution_time": 0.45,
-    "result": {
-      "summary": {
-        "score": 0.85,
-        "rank": "A",
-        "pass": true
-      },
-      "metrics": {
-        "f1_macro": 0.85,
-        "accuracy": 0.88
-      }
-    },
-    "validation": {
-      "workspace_valid": true,
-      "data_format_valid": true,
-      "parameters_valid": true
-    },
-    "performance": {
-      "memory_usage": "45MB",
-      "cpu_time": 0.42
-    }
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0"
   }
 }
 ```
@@ -778,7 +324,7 @@ POST /api/v1/scorers/{scorer_name}/test
 从文件加载自定义评分器。
 
 ```http
-POST /api/v1/scorers/load
+POST /scorers/load
 ```
 
 **请求体:**
@@ -787,7 +333,6 @@ POST /api/v1/scorers/load
 {
   "file_path": "/path/to/custom_scorer.py",
   "auto_watch": true,      // 自动监控文件变化
-  "check_interval": 1.0,   // 监控间隔(秒)
   "force_reload": false    // 强制重新加载
 }
 ```
@@ -796,18 +341,19 @@ POST /api/v1/scorers/load
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "loaded_scorers": [
-      {
-        "name": "custom_nlp_scorer",
-        "version": "1.0.0",
-        "file_path": "/path/to/custom_scorer.py",
-        "loaded_at": "2024-08-24T10:00:00Z"
-      }
-    ],
-    "watch_enabled": true,
-    "total_loaded": 1
+    "loaded_scorers": {
+      "custom_nlp_scorer": "CustomNLPScorer"
+    },
+    "count": 1,
+    "auto_watch": true,
+    "file_path": "/path/to/custom_scorer.py"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "load_scorer"
   }
 }
 ```
@@ -817,7 +363,7 @@ POST /api/v1/scorers/load
 重新加载指定的评分器文件。
 
 ```http
-POST /api/v1/scorers/reload
+POST /scorers/reload
 ```
 
 **请求体:**
@@ -825,7 +371,7 @@ POST /api/v1/scorers/reload
 ```json
 {
   "file_path": "/path/to/custom_scorer.py",
-  "scorer_name": "custom_nlp_scorer"  // 可选，指定评分器名称
+  "force_reload": false
 }
 ```
 
@@ -833,17 +379,69 @@ POST /api/v1/scorers/reload
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "reloaded_scorers": [
-      {
-        "name": "custom_nlp_scorer",
-        "old_version": "1.0.0",
-        "new_version": "1.1.0",
-        "reloaded_at": "2024-08-24T10:05:00Z"
+    "reloaded_scorers": {
+      "custom_nlp_scorer": "CustomNLPScorer"
+    },
+    "count": 1,
+    "file_path": "/path/to/custom_scorer.py"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "reload_scorer"
+  }
+}
+```
+
+### 测试评分器
+
+测试评分器在指定工作区上的运行效果。
+
+```http
+POST /scorers/test
+```
+
+**请求体:**
+
+```json
+{
+  "scorer_name": "classification_f1",
+  "workspace": "/path/to/test/workspace",
+  "params": {
+    "average": "macro"
+  }
+}
+```
+
+**响应示例:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "scorer_name": "classification_f1",
+    "scorer_class": "ClassificationF1Scorer",
+    "workspace": "/path/to/test/workspace",
+    "result": {
+      "summary": {
+        "score": 0.85,
+        "rank": "A", 
+        "pass": true
+      },
+      "metrics": {
+        "f1_macro": 0.85,
+        "accuracy": 0.88
       }
-    ],
-    "total_reloaded": 1
+    }
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "test_scorer",
+    "execution_time": 0.45,
+    "scorer_used": "classification_f1"
   }
 }
 ```
@@ -853,7 +451,7 @@ POST /api/v1/scorers/reload
 开始监控评分器文件的变化。
 
 ```http
-POST /api/v1/scorers/watch
+POST /scorers/watch
 ```
 
 **请求体:**
@@ -869,12 +467,16 @@ POST /api/v1/scorers/watch
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
+    "message": "Started watching /path/to/custom_scorer.py",
     "file_path": "/path/to/custom_scorer.py",
-    "watch_started": true,
-    "check_interval": 1.0,
-    "started_at": "2024-08-24T10:00:00Z"
+    "check_interval": 1.0
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "watch_start"
   }
 }
 ```
@@ -884,21 +486,22 @@ POST /api/v1/scorers/watch
 停止监控特定文件。
 
 ```http
-DELETE /api/v1/scorers/watch
+DELETE /scorers/watch?file_path=/path/to/custom_scorer.py
 ```
-
-**查询参数:**
-- `file_path`: 要停止监控的文件路径
 
 **响应示例:**
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "file_path": "/path/to/custom_scorer.py",
-    "watch_stopped": true,
-    "stopped_at": "2024-08-24T10:10:00Z"
+    "message": "Stopped watching /path/to/custom_scorer.py",
+    "file_path": "/path/to/custom_scorer.py"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "watch_stop"
   }
 }
 ```
@@ -908,48 +511,114 @@ DELETE /api/v1/scorers/watch
 查看当前的文件监控状态。
 
 ```http
-GET /api/v1/scorers/watch
+GET /scorers/watch
 ```
 
 **响应示例:**
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
     "watched_files": [
       {
         "file_path": "/path/to/custom_scorer.py",
         "check_interval": 1.0,
-        "started_at": "2024-08-24T10:00:00Z",
-        "last_check": "2024-08-24T10:10:30Z",
-        "total_reloads": 2
+        "started_at": "2024-08-24T10:00:00Z"
       }
     ],
-    "total_watched": 1
+    "count": 1
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "watch_list"
   }
 }
 ```
 
-## 工作区管理 API
+## 结果和日志查询 API
 
-### 验证工作区
+### 获取执行结果
 
-验证工作区结构和数据格式。
+获取工作区的执行结果。
 
 ```http
-POST /api/v1/workspaces/validate
+GET /result?workspace=/path/to/workspace
+```
+
+**响应示例:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "result": {
+      "summary": {
+        "score": 0.85,
+        "rank": "A",
+        "pass": true
+      },
+      "metrics": {
+        "f1_macro": 0.85,
+        "accuracy": 0.88
+      }
+    },
+    "path": "/path/to/workspace/output/result.json"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "get_result"
+  }
+}
+```
+
+### 获取执行日志
+
+获取工作区的执行日志。
+
+```http
+GET /logs?workspace=/path/to/workspace
+```
+
+**响应示例:**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "path": "/path/to/workspace/logs/container.log",
+    "content": "2024-08-24 10:00:00 - INFO - Starting execution\n2024-08-24 10:01:00 - INFO - Execution completed"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "get_logs"
+  }
+}
+```
+
+## 异步任务管理 API
+
+### 提交异步任务
+
+提交异步执行任务。
+
+```http
+POST /submit
 ```
 
 **请求体:**
 
 ```json
 {
-  "workspace_path": "/path/to/workspace",
-  "task_type": "classification",  // 可选
-  "scorer": "classification_f1",  // 可选
-  "strict_mode": true,            // 严格模式
-  "auto_fix": false              // 自动修复
+  "workspace": "/path/to/workspace",
+  "action": "pipeline",        // run|score|pipeline
+  "backend": "docker",         // 可选
+  "params": {},               // 可选
+  "scorer": "classification_f1", // 可选
+  "callback_url": "http://callback.example.com/webhook" // 可选
 }
 ```
 
@@ -957,291 +626,69 @@ POST /api/v1/workspaces/validate
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "workspace_path": "/path/to/workspace",
-    "validation_status": "valid",
-    "checks": {
-      "structure": {
-        "status": "valid",
-        "details": {
-          "has_input_dir": true,
-          "has_output_dir": true,
-          "has_meta_json": true
-        }
-      },
-      "data_format": {
-        "status": "valid",
-        "details": {
-          "gt_file_exists": true,
-          "gt_format_valid": true,
-          "pred_file_exists": true,
-          "pred_format_valid": true
-        }
-      },
-      "configuration": {
-        "status": "valid",
-        "details": {
-          "meta_json_valid": true,
-          "scorer_exists": true,
-          "resources_valid": true
-        }
-      }
-    },
-    "warnings": [
-      "Output directory is empty - no prediction results found"
-    ],
-    "errors": [],
-    "suggestions": [
-      "Consider adding logging configuration to meta.json"
-    ]
+    "submitted": true,
+    "task_id": "celery-task-abc123",
+    "action": "pipeline",
+    "workspace": "/path/to/workspace"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "submit"
   }
 }
 ```
 
-### 初始化工作区
-
-创建标准的工作区结构。
-
-```http
-POST /api/v1/workspaces/init
-```
-
-**请求体:**
+**去重响应示例:**
 
 ```json
 {
-  "workspace_path": "/path/to/new/workspace",
-  "template": "classification",     // 模板类型
-  "job_id": "job-001",             // 可选
-  "task_type": "classification",
-  "scorer": "classification_f1",
-  "config": {                      // 可选配置
-    "time_limit": 1800,
-    "resources": {
-      "cpu": 2.0,
-      "memory": "4Gi"
-    }
+  "ok": true,
+  "data": {
+    "submitted": false,
+    "running": true,
+    "task_id": "celery-task-existing",
+    "action": "pipeline",
+    "workspace": "/path/to/workspace"
+  },
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "submit_dedup"
   }
 }
+```
+
+### 查询任务状态
+
+查询异步任务的执行状态。
+
+```http
+GET /tasks/{task_id}
 ```
 
 **响应示例:**
 
 ```json
 {
-  "success": true,
+  "ok": true,
   "data": {
-    "workspace_path": "/path/to/new/workspace",
-    "template_used": "classification",
-    "created_files": [
-      "meta.json",
-      "input/.gitkeep",
-      "output/.gitkeep", 
-      "logs/.gitkeep"
-    ],
-    "structure": {
-      "input/": "Input data directory (read-only)",
-      "output/": "Output results directory (read-write)",
-      "logs/": "Execution logs directory (read-write)",
-      "meta.json": "Job configuration file"
-    },
-    "next_steps": [
-      "Place your ground truth data in input/gt.csv",
-      "Place your model predictions in output/pred.csv",
-      "Run evaluation with: autoscorer score /path/to/new/workspace"
-    ]
-  }
-}
-```
-
-## 配置管理 API
-
-### 获取系统配置
-
-获取当前系统配置。
-
-```http
-GET /api/v1/config
-```
-
-**查询参数:**
-- `section`: 配置段落 (executor|redis|api|logging)
-- `include_defaults`: 是否包含默认值
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "executor": {
-      "type": "docker",
-      "docker": {
-        "network_mode": "bridge",
-        "cleanup": true,
-        "timeout": 3600
-      },
-      "k8s": {
-        "enabled": false,
-        "namespace": "autoscorer"
+    "id": "celery-task-abc123",
+    "state": "SUCCESS",
+    "result": {
+      "summary": {
+        "score": 0.85,
+        "rank": "A",
+        "pass": true
       }
-    },
-    "redis": {
-      "url": "redis://localhost:6379/0",
-      "max_connections": 10
-    },
-    "api": {
-      "host": "0.0.0.0",
-      "port": 8000,
-      "workers": 4
-    },
-    "logging": {
-      "level": "INFO",
-      "format": "json"
-    }
-  }
-}
-```
-
-### 更新配置
-
-更新系统配置(需要管理员权限)。
-
-```http
-PUT /api/v1/config
-```
-
-**请求体:**
-
-```json
-{
-  "section": "executor",  // 配置段落
-  "config": {
-    "type": "k8s",
-    "k8s": {
-      "enabled": true,
-      "namespace": "autoscorer-prod"
     }
   },
-  "restart_required": true  // 是否需要重启服务
-}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "updated_section": "executor",
-    "changes": {
-      "type": {
-        "old": "docker",
-        "new": "k8s"
-      },
-      "k8s.enabled": {
-        "old": false,
-        "new": true
-      }
-    },
-    "restart_required": true,
-    "updated_at": "2024-08-24T10:00:00Z"
-  }
-}
-```
-
-## 批量操作 API
-
-### 批量任务状态查询
-
-查询多个任务的状态。
-
-```http
-POST /api/v1/jobs/batch/status
-```
-
-**请求体:**
-
-```json
-{
-  "job_ids": ["job-001", "job-002", "job-003"],
-  "include_progress": true
-}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "jobs": [
-      {
-        "job_id": "job-001",
-        "status": "completed",
-        "progress": 1.0,
-        "score": 0.85
-      },
-      {
-        "job_id": "job-002", 
-        "status": "running",
-        "progress": 0.65,
-        "estimated_completion": "2024-08-24T10:15:00Z"
-      },
-      {
-        "job_id": "job-003",
-        "status": "failed",
-        "error": "Invalid workspace format"
-      }
-    ],
-    "summary": {
-      "total": 3,
-      "completed": 1,
-      "running": 1,
-      "failed": 1
-    }
-  }
-}
-```
-
-### 批量取消任务
-
-取消多个任务。
-
-```http
-DELETE /api/v1/jobs/batch
-```
-
-**请求体:**
-
-```json
-{
-  "job_ids": ["job-001", "job-002"],
-  "reason": "User requested batch cancellation"
-}
-```
-
-**响应示例:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "cancelled_jobs": [
-      {
-        "job_id": "job-001",
-        "status": "cancelled",
-        "cancelled_at": "2024-08-24T10:00:00Z"
-      },
-      {
-        "job_id": "job-002",
-        "status": "cancelled", 
-        "cancelled_at": "2024-08-24T10:00:00Z"
-      }
-    ],
-    "failed_cancellations": [],
-    "total_cancelled": 2
+  "meta": {
+    "timestamp": "2025-08-24T10:00:00Z",
+    "version": "0.1.0",
+    "action": "task_status"
   }
 }
 ```
@@ -1252,24 +699,20 @@ DELETE /api/v1/jobs/batch
 
 ```json
 {
-  "success": false,
-  "data": null,
+  "ok": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid workspace structure", 
+    "stage": "execution",
+    "details": {
+      "missing_files": ["input/gt.csv"],
+      "workspace": "/invalid/path"
+    }
+  },
   "meta": {
     "timestamp": "2024-08-24T10:00:00Z",
-    "request_id": "req_abc123",
-    "api_version": "v1"
-  },
-  "errors": [
-    {
-      "code": "VALIDATION_ERROR",
-      "message": "Invalid workspace structure", 
-      "field": "workspace_path",
-      "details": {
-        "missing_files": ["input/gt.csv"],
-        "workspace_path": "/invalid/path"
-      }
-    }
-  ]
+    "version": "0.1.0"
+  }
 }
 ```
 
@@ -1278,15 +721,13 @@ DELETE /api/v1/jobs/batch
 | 错误码 | HTTP状态码 | 描述 | 解决方案 |
 |--------|------------|------|----------|
 | `INVALID_PARAMETER` | 400 | 请求参数无效 | 检查参数格式和值 |
-| `MISSING_PARAMETER` | 400 | 缺少必需参数 | 添加必需的参数 |
-| `VALIDATION_ERROR` | 422 | 数据验证失败 | 修复数据格式问题 |
-| `RESOURCE_NOT_FOUND` | 404 | 资源不存在 | 确认资源路径正确 |
+| `FILE_NOT_FOUND` | 404 | 文件不存在 | 确认文件路径正确 |
 | `SCORER_NOT_FOUND` | 404 | 评分器不存在 | 使用有效的评分器名称 |
-| `WORKSPACE_INVALID` | 422 | 工作区格式无效 | 修复工作区结构 |
-| `EXECUTION_FAILED` | 500 | 执行失败 | 检查日志和配置 |
-| `TIMEOUT_ERROR` | 408 | 请求超时 | 增加超时时间或优化任务 |
-| `QUOTA_EXCEEDED` | 429 | 配额超限 | 等待或请求配额增加 |
-| `SERVICE_UNAVAILABLE` | 503 | 服务不可用 | 稍后重试或联系管理员 |
+| `VALIDATION_ERROR` | 422 | 数据验证失败 | 修复数据格式问题 |
+| `EXEC_ERROR` | 500 | 执行失败 | 检查日志和配置 |
+| `LOAD_ERROR` | 500 | 加载失败 | 检查文件格式和权限 |
+| `PIPELINE_ERROR` | 500 | 流水线执行失败 | 检查工作区和配置 |
+| `UNHANDLED_ERROR` | 500 | 未处理的错误 | 联系管理员 |
 
 ### 错误处理最佳实践
 
@@ -1303,13 +744,12 @@ def call_api_with_retry(url, data=None, max_retries=3):
             
             # 检查HTTP状态码
             if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 429:
-                # 请求限流，等待后重试
-                wait_time = 2 ** attempt
-                print(f"Rate limited, waiting {wait_time}s...")
-                time.sleep(wait_time)
-                continue
+                result = response.json()
+                if result.get("ok"):
+                    return result
+                else:
+                    # API错误，不重试
+                    raise Exception(f"API Error: {result.get('error', {}).get('message', 'Unknown error')}")
             elif response.status_code >= 500:
                 # 服务器错误，重试
                 print(f"Server error {response.status_code}, retrying...")
@@ -1330,136 +770,102 @@ def call_api_with_retry(url, data=None, max_retries=3):
 # 使用示例
 try:
     result = call_api_with_retry(
-        "http://localhost:8000/api/v1/jobs",
-        data={"job_id": "test", "task_type": "classification"}
+        "http://localhost:8000/pipeline",
+        data={"workspace": "/path/to/workspace"}
     )
-    print(f"Job submitted: {result['data']['job_id']}")
+    print(f"Pipeline completed: {result['data']}")
     
 except Exception as e:
     print(f"API call failed: {e}")
 ```
 
-## SDK 和客户端库
+## 使用示例
 
-### Python SDK 示例
-
-```python
-from autoscorer_client import AutoScorerClient
-
-# 创建客户端
-client = AutoScorerClient(base_url="http://localhost:8000")
-
-# 提交任务
-job = client.submit_job(
-    job_id="sdk-test-001",
-    task_type="classification",
-    scorer="classification_f1",
-    workspace_path="/path/to/workspace"
-)
-
-# 等待完成
-result = client.wait_for_completion(job.job_id, timeout=300)
-
-# 获取结果
-if result.success:
-    print(f"Score: {result.data.result.summary.score}")
-else:
-    print(f"Job failed: {result.errors}")
-
-# 批量操作
-jobs = client.submit_batch([
-    {"job_id": "batch-001", "workspace_path": "/workspace1"},
-    {"job_id": "batch-002", "workspace_path": "/workspace2"}
-])
-
-# 监控进度
-for job_id in jobs.job_ids:
-    status = client.get_job_status(job_id)
-    print(f"{job_id}: {status.status} ({status.progress}%)")
-```
-
-### JavaScript SDK 示例
-
-```javascript
-import { AutoScorerClient } from 'autoscorer-js-client';
-
-const client = new AutoScorerClient({
-  baseUrl: 'http://localhost:8000',
-  apiKey: 'your-api-key'  // 可选
-});
-
-// 提交任务
-const job = await client.submitJob({
-  jobId: 'js-test-001',
-  taskType: 'classification',
-  scorer: 'classification_f1',
-  workspacePath: '/path/to/workspace'
-});
-
-// 监控状态
-const status = await client.getJobStatus(job.jobId);
-console.log(`Status: ${status.status}, Progress: ${status.progress}%`);
-
-// 获取结果
-if (status.status === 'completed') {
-  const result = await client.getJobResult(job.jobId);
-  console.log(`Score: ${result.summary.score}`);
-}
-
-// 流式日志
-client.streamLogs(job.jobId, (logEntry) => {
-  console.log(`[${logEntry.timestamp}] ${logEntry.level}: ${logEntry.message}`);
-});
-```
-
-## 性能优化建议
-
-### 1. 批量操作
-
-```python
-# 推荐：使用批量 API
-jobs = client.submit_batch(job_list)
-
-# 不推荐：逐个提交
-for job_data in job_list:
-    client.submit_job(job_data)
-```
-
-### 2. 异步处理
-
-```python
-# 对于长时间运行的任务，使用异步模式
-job = client.submit_job(data, async=True)
-
-# 定期检查状态而不是阻塞等待
-while True:
-    status = client.get_job_status(job.job_id)
-    if status.status in ['completed', 'failed']:
-        break
-    time.sleep(5)
-```
-
-### 3. 合理的轮询间隔
-
-```python
-# 根据任务类型调整轮询间隔
-if task_is_quick:
-    poll_interval = 1  # 快速任务 1 秒轮询
-else:
-    poll_interval = 10  # 长任务 10 秒轮询
-```
-
-### 4. 连接池和会话复用
+### 基本工作流程
 
 ```python
 import requests
 
-# 使用会话复用连接
-session = requests.Session()
-session.headers.update({'Authorization': 'Bearer token'})
+# 1. 检查系统健康状态
+health = requests.get("http://localhost:8000/healthz").json()
+print(f"System status: {health['data']['status']}")
 
-# 所有请求使用同一个会话
-response = session.post('/api/v1/jobs', json=data)
+# 2. 列出可用的评分器
+scorers = requests.get("http://localhost:8000/scorers").json()
+print(f"Available scorers: {list(scorers['data']['scorers'].keys())}")
+
+# 3. 执行完整流水线
+pipeline_data = {
+    "workspace": "/path/to/workspace",
+    "scorer": "classification_f1",
+    "params": {"average": "macro"}
+}
+result = requests.post("http://localhost:8000/pipeline", json=pipeline_data).json()
+
+if result["ok"]:
+    score = result["data"]["pipeline_result"]["summary"]["score"]
+    print(f"Final score: {score}")
+else:
+    print(f"Error: {result['error']['message']}")
+```
+
+### 异步任务处理
+
+```python
+import requests
+import time
+
+# 1. 提交异步任务
+submit_data = {
+    "workspace": "/path/to/workspace",
+    "action": "pipeline",
+    "scorer": "classification_f1"
+}
+task = requests.post("http://localhost:8000/submit", json=submit_data).json()
+task_id = task["data"]["task_id"]
+print(f"Task submitted: {task_id}")
+
+# 2. 监控任务状态
+while True:
+    status = requests.get(f"http://localhost:8000/tasks/{task_id}").json()
+    state = status["data"]["state"]
+    
+    if state == "SUCCESS":
+        result = status["data"]["result"]
+        print(f"Task completed with score: {result['summary']['score']}")
+        break
+    elif state == "FAILURE":
+        print(f"Task failed: {status['data'].get('result', 'Unknown error')}")
+        break
+    else:
+        print(f"Task status: {state}")
+        time.sleep(5)
+```
+
+### 动态评分器管理
+
+```python
+import requests
+
+# 1. 加载自定义评分器
+load_data = {
+    "file_path": "/path/to/custom_scorer.py",
+    "auto_watch": True
+}
+response = requests.post("http://localhost:8000/scorers/load", json=load_data)
+print(f"Loaded scorers: {response.json()['data']['loaded_scorers']}")
+
+# 2. 测试评分器
+test_data = {
+    "scorer_name": "custom_scorer",
+    "workspace": "/path/to/test/workspace"
+}
+test_result = requests.post("http://localhost:8000/scorers/test", json=test_data)
+print(f"Test result: {test_result.json()['data']['result']}")
+
+# 3. 查看监控状态
+watch_status = requests.get("http://localhost:8000/scorers/watch").json()
+print(f"Watched files: {watch_status['data']['watched_files']}")
 ```
 
 ## 相关文档
@@ -1467,5 +873,5 @@ response = session.post('/api/v1/jobs', json=data)
 - **[快速开始](getting-started.md)** - 快速上手指南
 - **[CLI 指南](cli-guide.md)** - 命令行工具使用
 - **[工作区规范](workspace-spec.md)** - 数据格式要求
-- **[评分算法详解](scoring-algorithms.md)** - 评分器使用指南
-- **[部署指南](deployment.md)** - 生产环境部署
+- **[评分器开发](scorer-development.md)** - 自定义评分器开发
+- **[部署指南](DEPLOYMENT.md)** - 生产环境部署
