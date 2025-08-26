@@ -18,6 +18,7 @@ AutoScorer API 是基于 REST 的 HTTP API，使用 JSON 进行数据交换。AP
 - **错误处理**: 详细的错误码和消息
 - **异步支持**: 长时间运行的任务支持异步处理
 - **热重载**: 支持评分器热重载和文件监控
+- **工作区驱动配置**: backend 与 scorer 均由工作区 `meta.json` 决定，API 不再接收这两个字段作为请求参数
 
 ## 通用规范
 
@@ -155,9 +156,7 @@ POST /run
 
 ```json
 {
-  "workspace": "/path/to/workspace",
-  "backend": "docker",  // 可选: docker|k8s|auto
-  "params": {}          // 可选: 额外参数
+  "workspace": "/path/to/workspace"
 }
 ```
 
@@ -175,7 +174,7 @@ POST /run
     "version": "0.1.0",
     "action": "run_only",
     "execution_time": 45.6,
-    "backend_used": "docker"
+  "backend_used": "auto"
   }
 }
 ```
@@ -193,8 +192,7 @@ POST /score
 ```json
 {
   "workspace": "/path/to/workspace",
-  "scorer": "classification_f1",  // 可选: 指定评分器
-  "params": {                     // 可选: 评分器参数
+  "params": {
     "average": "macro"
   }
 }
@@ -225,7 +223,7 @@ POST /score
     "version": "0.1.0",
     "action": "score_only",
     "execution_time": 3.5,
-    "scorer_used": "classification_f1"
+  "scorer_used": "auto"
   }
 }
 ```
@@ -243,9 +241,7 @@ POST /pipeline
 ```json
 {
   "workspace": "/path/to/workspace",
-  "backend": "docker",            // 可选: 执行后端
-  "scorer": "classification_f1",  // 可选: 指定评分器
-  "params": {                     // 可选: 评分器参数
+  "params": {
     "average": "macro"
   }
 }
@@ -275,8 +271,8 @@ POST /pipeline
     "version": "0.1.0",
     "action": "pipeline",
     "execution_time": 48.1,
-    "backend_used": "docker",
-    "scorer_used": "classification_f1"
+  "backend_used": "auto",
+  "scorer_used": "auto"
   }
 }
 ```
@@ -615,9 +611,7 @@ POST /submit
 {
   "workspace": "/path/to/workspace",
   "action": "pipeline",        // run|score|pipeline
-  "backend": "docker",         // 可选
-  "params": {},               // 可选
-  "scorer": "classification_f1", // 可选
+  "params": {},                 // 可选
   "callback_url": "http://callback.example.com/webhook" // 可选
 }
 ```
@@ -796,9 +790,8 @@ print(f"Available scorers: {list(scorers['data']['scorers'].keys())}")
 
 # 3. 执行完整流水线
 pipeline_data = {
-    "workspace": "/path/to/workspace",
-    "scorer": "classification_f1",
-    "params": {"average": "macro"}
+  "workspace": "/path/to/workspace",
+  "params": {"average": "macro"}
 }
 result = requests.post("http://localhost:8000/pipeline", json=pipeline_data).json()
 
@@ -817,9 +810,8 @@ import time
 
 # 1. 提交异步任务
 submit_data = {
-    "workspace": "/path/to/workspace",
-    "action": "pipeline",
-    "scorer": "classification_f1"
+  "workspace": "/path/to/workspace",
+  "action": "pipeline"
 }
 task = requests.post("http://localhost:8000/submit", json=submit_data).json()
 task_id = task["data"]["task_id"]

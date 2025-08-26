@@ -94,7 +94,7 @@ def _http_post_json(url: str, payload: Dict[str, Any], retries: int = 2) -> None
         logger.warning(f"Callback POST failed after {attempt} attempts: {last_err}")
 
 
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, name="autoscorer.run_job")
 def run_job(self, workspace: str, backend: str | None = None, callback_url: Optional[str] = None):
     """执行推理任务"""
     try:
@@ -133,7 +133,7 @@ def run_job(self, workspace: str, backend: str | None = None, callback_url: Opti
         raise
 
 
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, name="autoscorer.score_job")
 def score_job(self, workspace: str, params: dict = None, backend: str | None = None, callback_url: Optional[str] = None):
     """执行评分任务"""
     try:
@@ -178,7 +178,7 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
         raise
 
 
-@celery_app.task(bind=True)
+@celery_app.task(bind=True, name="autoscorer.run_and_score_job")
 def run_and_score_job(self, workspace: str, params: dict = None, backend: str | None = None, callback_url: Optional[str] = None):
     """执行完整流水线任务(推理+评分)"""
     try:
