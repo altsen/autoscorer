@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   redis:
     image: redis:7-alpine
@@ -13,16 +12,22 @@ services:
     depends_on:
       - redis
     environment:
-  - PYTHONPATH=src
+      - PYTHONPATH=src
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
       - IMAGE_PULL_POLICY=ifnotpresent
       # 如需连接宿主 Docker，请使用以下 DOCKER_HOST（macOS/Windows 使用不同映射方案）
       - DOCKER_HOST=unix:///var/run/docker.sock
+      # 路径映射：容器路径 -> 宿主路径，用于 docker.sock 挂载场景下将卷映射回宿主
+      - CONTAINER_PROJECT_ROOT=/app
+      - HOST_PROJECT_ROOT=${PWD}
+      - CONTAINER_EXAMPLES_ROOT=/data/examples
+      - HOST_EXAMPLES_ROOT=${PWD}/examples
     volumes:
       - ./:/app
-  - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
+      - ./config.yaml:/app/config.yaml:ro
     working_dir: /app
     ports:
       - "8000:8000"
@@ -30,19 +35,43 @@ services:
     restart: unless-stopped
 
   worker:
+    build: .
     image: autoscorer:local
     container_name: autoscorer_worker
     depends_on:
       - redis
       - api
     environment:
+      - PYTHONPATH=src
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
       - DOCKER_HOST=unix:///var/run/docker.sock
+      - CONTAINER_PROJECT_ROOT=/app
+      - HOST_PROJECT_ROOT=${PWD}
+      - CONTAINER_EXAMPLES_ROOT=/data/examples
+      - HOST_EXAMPLES_ROOT=${PWD}/examples
     volumes:
       - ./:/app
-  - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
+      - ./config.yaml:/app/config.yaml:ro
     working_dir: /app
-    command: ["bash", "-lc", "PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info"]
+    command: ["bash", "-lc", "celery -A celery_app.tasks worker --loglevel=info"]
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:latest
+    container_name: autoscorer_flower
+    depends_on:
+      - redis
+    command: [
+      "celery",
+      "flower",
+      "--broker=redis://redis:6379/0",
+      "--result-backend=redis://redis:6379/0",
+      "--address=0.0.0.0",
+      "--port=5555"
+    ]
+    ports:
+      - "5555:5555"
     restart: unless-stopped

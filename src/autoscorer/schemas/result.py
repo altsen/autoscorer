@@ -20,9 +20,9 @@ class Result(BaseModel):
         default_factory=dict,
         description="生成的文件和资源: {name: {path, size, sha256, metadata}}"
     )
-    timing: Dict[str, float] = Field(
+    timing: Dict[str, Any] = Field(
         default_factory=dict,
-        description="性能时间记录: total_time, load_time, compute_time, save_time"
+        description="性能时间记录: 可包含 total_time, load_time, compute_time, save_time 以及嵌套的 run 等结构"
     )
     resources: Dict[str, Union[float, int]] = Field(
         default_factory=dict,

@@ -37,7 +37,7 @@ autoscorer --help
   "data": {
     // 具体数据
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "execution_time": 45.6,
   "workspace": "/path/to/workspace"
 }
@@ -52,7 +52,7 @@ autoscorer --help
     "message": "Invalid workspace structure",
     "stage": "validation"
   },
-  "timestamp": "2024-08-24T10:00:00Z"
+  "timestamp": "2025-09-01T10:00:00Z"
 }
 ```
 
@@ -85,7 +85,7 @@ autoscorer validate /path/to/workspace
     "job_id": "demo-job-001",
     "task_type": "classification"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "workspace": "/path/to/workspace"
 }
 ```
@@ -123,9 +123,18 @@ autoscorer run /path/to/workspace --backend k8s
 {
   "status": "success",
   "data": {
-    "run_result": "执行成功"
+    "result": {
+      "ok": true,
+      "stage": "inference_done",
+      "job_id": "job-xxx",
+      "timing": {
+        "schedule_time": 0.01,
+        "execution_time": 0.42,
+        "total_time": 0.43
+      }
+    }
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "execution_time": 45.6,
   "workspace": "/path/to/workspace",
   "backend_used": "docker"
@@ -173,7 +182,7 @@ autoscorer score /path/to/workspace \
 {
   "status": "success",
   "data": {
-    "score_result": {
+    "result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
@@ -182,11 +191,17 @@ autoscorer score /path/to/workspace \
       "metrics": {
         "f1_macro": 0.85,
         "accuracy": 0.88
+      },
+      "timing": {
+        "validate_time": 0.002,
+        "compute_time": 0.006,
+        "save_time": 0.001,
+        "total_time": 0.030
       }
     },
     "output_path": "/path/to/workspace/output/result.json"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "execution_time": 3.5,
   "workspace": "/path/to/workspace",
   "scorer_used": "classification_f1"
@@ -228,7 +243,7 @@ autoscorer pipeline /path/to/workspace \
 {
   "status": "success",
   "data": {
-    "pipeline_result": {
+    "result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
@@ -237,10 +252,20 @@ autoscorer pipeline /path/to/workspace \
       "metrics": {
         "f1_macro": 0.85,
         "accuracy": 0.88
+      },
+      "timing": {
+        "run_schedule_time": 0.010,
+        "run_execution_time": 0.430,
+        "run_total_time": 0.440,
+        "pipeline_total_time": 0.470,
+        "validate_time": 0.002,
+        "compute_time": 0.006,
+        "save_time": 0.001,
+        "total_time": 0.028
       }
     }
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "execution_time": 48.1,
   "workspace": "/path/to/workspace",
   "backend_used": "docker",
@@ -293,7 +318,7 @@ autoscorer submit /path/to/workspace \
       "average": "weighted"
     }
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "workspace": "/path/to/workspace"
 }
 ```
@@ -331,7 +356,7 @@ autoscorer scorers list
     "total": 2,
     "watched_files": []
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "action": "scorers_list"
 }
 ```
@@ -355,7 +380,7 @@ autoscorer scorers load --file-path /path/to/custom_scorer.py
     "watching": true,
     "file_path": "/path/to/custom_scorer.py"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "action": "scorers_load"
 }
 ```
@@ -378,7 +403,7 @@ autoscorer scorers reload --file-path /path/to/custom_scorer.py
     "count": 1,
     "file_path": "/path/to/custom_scorer.py"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "action": "scorers_reload"
 }
 ```
@@ -411,7 +436,7 @@ autoscorer scorers test \
       }
     }
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "action": "scorers_test",
   "workspace": "/path/to/test/workspace"
 }
@@ -465,7 +490,7 @@ autoscorer config show [--config-path CONFIG_PATH]
     "LOG_DIR": "/tmp/autoscorer",
     "WORKSPACE_ROOT": "/workspaces"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "config_file": "/path/to/config.yaml"
 }
 ```
@@ -484,7 +509,7 @@ autoscorer config validate [--config-path CONFIG_PATH]
   "data": {
     "validation": "passed"
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "config_file": "/path/to/config.yaml"
 }
 ```
@@ -505,7 +530,7 @@ autoscorer config validate [--config-path CONFIG_PATH]
       ]
     }
   },
-  "timestamp": "2024-08-24T10:00:00Z"
+  "timestamp": "2025-09-01T10:00:00Z"
 }
 ```
 
@@ -533,7 +558,7 @@ autoscorer config dump [--config-path CONFIG_PATH]
       "broker": "redis://localhost:6379/0"
     }
   },
-  "timestamp": "2024-08-24T10:00:00Z",
+  "timestamp": "2025-09-01T10:00:00Z",
   "config_file": "/path/to/config.yaml"
 }
 ```
@@ -712,7 +737,7 @@ RESULT=$(autoscorer score "$WORKSPACE" --scorer "$SCORER")
 STATUS=$(echo "$RESULT" | jq -r '.status')
 
 if [ "$STATUS" = "success" ]; then
-    SCORE=$(echo "$RESULT" | jq -r '.data.score_result.summary.score')
+  SCORE=$(echo "$RESULT" | jq -r '.data.result.summary.score')
     echo "Evaluation completed. Score: $SCORE"
     
     # 检查阈值
@@ -785,7 +810,7 @@ if __name__ == "__main__":
     result = run_autoscorer(workspace)
     
     if result.get("status") == "success":
-        score = result["data"]["score_result"]["summary"]["score"]
+  score = result["data"]["result"]["summary"]["score"]
         print(f"Score: {score}")
         
         if score >= 0.8:
@@ -858,4 +883,4 @@ celery -A celery_app.tasks inspect active
 - **[API 参考](api-reference.md)** - REST API 详细文档
 - **[工作区规范](workspace-spec.md)** - 数据格式要求
 - **[评分器开发](scorer-development.md)** - 自定义评分器开发
-- **[部署指南](DEPLOYMENT.md)** - 生产环境部署
+- **[部署指南](deployment.md)** - 生产环境部署

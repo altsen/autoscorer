@@ -183,14 +183,18 @@ workspace/
   },
   "artifacts": {},
   "timing": {
-    "total_time": 1.234
+  "total_time": 1.234
   },
   "versioning": {
     "scorer": "classification_f1",
     "version": "2.0.0",
-    "timestamp": "2024-08-24T10:00:00Z"
+    "timestamp": "2025-09-01T10:00:00Z"
   }
 }
+说明：
+- timing 字段为扁平结构（不嵌套）。评分阶段常见键包括：validate_time、compute_time、save_time、total_time。
+- 在完整流水线（运行推理再评分）场景下，可能包含 run_schedule_time、run_execution_time、run_total_time 和 pipeline_total_time 等汇总键。
+
 ```
 
 ## 支持的评分算法
@@ -225,10 +229,12 @@ class MyCustomScorer(BaseScorer):
 ## 部署模式
 
 ### 开发环境
+
 - **本地开发**: 单机 Docker + Redis
 - **快速测试**: Docker Compose 一键启动
 
 ### 生产环境
+
 - **单机部署**: SystemD 服务管理
 - **集群部署**: Kubernetes 原生支持
 - **混合部署**: Docker + K8s 混合执行
@@ -236,12 +242,14 @@ class MyCustomScorer(BaseScorer):
 ## 安全特性
 
 ### 容器安全
+
 - **非特权执行**: no-new-privileges 策略
 - **只读根文件系统**: 防止恶意文件写入
 - **网络隔离**: 支持 none/restricted 网络模式
 - **资源限制**: CPU/内存/时间配额
 
 ### 数据安全
+
 - **输入保护**: input 目录只读挂载
 - **输出隔离**: 每个作业独立的 output 目录
 - **权限控制**: 基于用户/队伍的访问控制
@@ -250,16 +258,19 @@ class MyCustomScorer(BaseScorer):
 ## 性能特性
 
 ### 并发处理
+
 - **多 Worker**: 支持多进程并发评分
 - **任务队列**: 基于 Redis/RabbitMQ 的可靠队列
 - **负载均衡**: 自动任务分发和负载平衡
 
 ### 资源优化
+
 - **镜像缓存**: 本地优先策略减少拉取时间
 - **结果缓存**: 支持评分结果缓存和复用
 - **资源回收**: 自动清理临时文件和容器
 
 ### 扩展性
+
 - **水平扩展**: 通过增加 Worker 节点提升处理能力
 - **垂直扩展**: 支持高性能硬件（GPU、大内存）
 - **多区域**: 支持跨区域分布式部署
@@ -267,16 +278,19 @@ class MyCustomScorer(BaseScorer):
 ## 监控与运维
 
 ### 健康检查
+
 - **服务状态**: 实时监控各组件运行状态
 - **资源使用**: CPU、内存、磁盘使用监控
 - **任务统计**: 成功率、失败率、执行时间统计
 
 ### 日志管理
+
 - **结构化日志**: JSON 格式便于分析
 - **分级记录**: 不同级别的日志输出
 - **日志轮转**: 自动管理日志文件大小
 
 ### 告警机制
+
 - **阈值告警**: 资源使用、错误率告警
 - **通知渠道**: 支持邮件、Slack、钉钉等
 - **故障恢复**: 自动重启和故障切换
@@ -290,13 +304,15 @@ class MyCustomScorer(BaseScorer):
 
 ## 版本历史
 
-### v2.0.0 (2024-08-24)
+### v2.0.0 (2025-09-01)
+
 - ✨ 新增热重载评分器支持
 - 🔧 改进配置管理和验证
 - 📈 增强日志系统和监控
 - 🐛 修复多项稳定性问题
 
-### v1.0.0 (2024-06-01)
+### v1.0.0 (2025-09-01)
+
 - 🎉 首个正式版本发布
 - 🔥 支持 Docker 和 K8s 执行器
 - 📊 内置常用评分算法

@@ -18,13 +18,13 @@ from autoscorer.utils.workspace_validator import validate_workspace
 
 
 def run_only(workspace: Path, backend: Optional[str] = None) -> Dict:
-    """执行推理（不评分）。返回阶段状态。"""
+    """执行推理（不评分），并记录关键耗时（调度/执行/总耗时）。"""
+    import time
     ws = workspace.resolve()
-    
+
     # 工作区校验
     validation_result = validate_workspace(ws)
     if not validation_result["ok"]:
-        # 收集所有错误并抛出第一个
         errors = validation_result["errors"]
         first_error = errors[0]
         if ":" in first_error:
@@ -35,21 +35,47 @@ def run_only(workspace: Path, backend: Optional[str] = None) -> Dict:
             code = "VALIDATION_ERROR"
             message = first_error
         raise AutoscorerError(code=code, message=message, details={"all_errors": errors})
-    
+
     spec = JobSpec.from_workspace(ws)
-    # 按既有策略选择执行器
     backend = (backend or "auto").lower()
+
+    t0 = time.perf_counter()
+    t_sched = 0.0
+    t_exec = 0.0
+
+    # 选择执行器（调度阶段）
+    s0 = time.perf_counter()
     if backend == "docker":
         ex = DockerExecutor()
+        scheduler = None
+    else:
+        scheduler = Scheduler()
+        ex = None
+    t_sched = time.perf_counter() - s0
+
+    # 执行阶段（包含容器运行/等待）
+    e0 = time.perf_counter()
+    if ex:
         ex.run(spec, ws)
     else:
-        # k8s 或 auto 走调度器逻辑（由调度器自行决定）
-        scheduler = Scheduler()
+        assert scheduler is not None
         scheduler.schedule(spec, ws)
-    return {"ok": True, "stage": "inference_done", "job_id": spec.job_id}
+    t_exec = time.perf_counter() - e0
+
+    total = time.perf_counter() - t0
+    return {
+        "ok": True,
+        "stage": "inference_done",
+        "job_id": spec.job_id,
+        "timing": {
+            "schedule_time": t_sched,
+            "execution_time": t_exec,
+            "total_time": total,
+        },
+    }
 
 
-def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: Optional[str] = None) -> Tuple[Result, Path]:
+def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: Optional[str] = None, extra_timing: Optional[Dict] = None) -> Tuple[Result, Path]:
     """执行评分，返回标准化Result与result.json路径。"""
     ws = workspace.resolve()
     spec = JobSpec.from_workspace(ws)
@@ -125,6 +151,27 @@ def score_only(workspace: Path, params: Optional[Dict] = None, scorer_override: 
         "validate_time": t_validate,
         "compute_time": t_compute,
     })
+    # 合并来自 run 阶段的耗时为扁平键（run_schedule_time/run_execution_time/run_total_time），计算流水线总耗时
+    if extra_timing:
+        run_t = extra_timing.get("run") if isinstance(extra_timing, dict) else None
+        if run_t is None:
+            # 兼容直接传入展平的 run timing
+            run_t = extra_timing
+        try:
+            run_sched = float((run_t or {}).get("schedule_time", 0.0) or 0.0)
+            run_exec = float((run_t or {}).get("execution_time", 0.0) or 0.0)
+            run_total = float((run_t or {}).get("total_time", 0.0) or 0.0)
+            if not run_total:
+                run_total = run_sched + run_exec
+            # 扁平化写入
+            timing["run_schedule_time"] = run_sched
+            timing["run_execution_time"] = run_exec
+            timing["run_total_time"] = run_total
+            # 原有 total_time 是评分阶段整体时间
+            pipeline_total = float(timing.get("total_time", 0.0) or 0.0) + run_total
+            timing["pipeline_total_time"] = pipeline_total
+        except Exception:
+            pass
     # 构建 artifacts（通用输入输出文件 + artifacts目录收集）
     input_gt = ws / "input" / "gt.csv"
     if not input_gt.exists():
@@ -180,7 +227,7 @@ def run_and_score(workspace: Path, params: Optional[Dict] = None, backend: Optio
     ws = workspace.resolve()
     # Run
     try:
-        run_only(ws, backend=backend)
+        run_result = run_only(ws, backend=backend)
     except AutoscorerError as e:
         logs = str((ws / "logs" / "container.log").resolve())
         return make_error("run", e.code, e.message, details=e.details, logs_path=logs)
@@ -190,7 +237,8 @@ def run_and_score(workspace: Path, params: Optional[Dict] = None, backend: Optio
 
     # Score - 支持scorer覆盖
     try:
-        result, out = score_only(ws, params or {}, scorer_override=scorer_override)
+        extra_timing = {"run": run_result.get("timing", {})} if isinstance(run_result, dict) else None
+        result, out = score_only(ws, params or {}, scorer_override=scorer_override, extra_timing=extra_timing)
         return {"ok": True, "result": result.model_dump(), "result_path": str(out)}
     except AutoscorerError as e:
         out = ws / "output" / "result.json"

@@ -135,7 +135,7 @@ def submit_job(workspace_data: dict, scorer: str, callback_url: str = None) -> d
         "queue_position": 3
     },
     "meta": {
-        "timestamp": "2024-08-21T10:30:00Z",
+        "timestamp": "2025-09-01T10:30:00Z",
         "request_id": "req_456"
     }
 }
@@ -300,7 +300,7 @@ def verify_signature(payload: bytes, signature: str) -> bool:
         // 完整评分结果
     },
     "execution_time": 145.6,
-    "timestamp": "2024-08-21T11:00:00Z",
+    "timestamp": "2025-09-01T11:00:00Z",
     "signature": "sha256=..."
 }
 ```
@@ -317,7 +317,7 @@ def verify_signature(payload: bytes, signature: str) -> bool:
         "stage": "scoring",
         "details": {}
     },
-    "timestamp": "2024-08-21T11:00:00Z"
+    "timestamp": "2025-09-01T11:00:00Z"
 }
 ```
 

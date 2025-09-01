@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+import os
 from .base import Executor
 from ..schemas.job import JobSpec
 from autoscorer.utils.config import Config
@@ -17,7 +18,8 @@ class DockerExecutor(Executor):
 
     def __init__(self, config_path: str = "config.yaml", node_host: str | None = None):
         self.cfg = Config(config_path)
-        base_url = node_host or self.cfg.get("DOCKER_HOST")
+        # 优先使用传入的 node_host，其次使用配置/环境中的 DOCKER_HOST，最后默认本机 docker.sock
+        base_url = node_host or self.cfg.get("DOCKER_HOST") or "unix:///var/run/docker.sock"
         self.base_url = base_url
         self.client = docker.DockerClient(
             base_url=base_url,
@@ -27,9 +29,32 @@ class DockerExecutor(Executor):
 
     def run(self, spec: JobSpec, workspace: Path) -> None:
         ws = workspace.resolve()
-        input_dir = (ws / "input").resolve()
-        output_dir = (ws / "output").resolve()
-        logs_dir = (ws / "logs").resolve()
+        # 当通过 docker.sock 连接宿主 Docker 时，卷的 source 必须是“宿主机可见”的真实路径。
+        # 这里将容器内路径（如 /app 或 /data/examples）映射回宿主机绝对路径。
+        ws_str = str(ws)
+        ws_host = ws
+        try:
+            base_is_local = isinstance(self.base_url, str) and self.base_url.startswith("unix://")
+        except Exception:
+            base_is_local = True
+
+        if base_is_local:
+            container_project = os.environ.get("CONTAINER_PROJECT_ROOT", "/app")
+            host_project = os.environ.get("HOST_PROJECT_ROOT")
+            container_examples = os.environ.get("CONTAINER_EXAMPLES_ROOT", "/data/examples")
+            host_examples = os.environ.get("HOST_EXAMPLES_ROOT") or (
+                (host_project and os.path.join(host_project, "examples")) or None
+            )
+            if host_project and ws_str.startswith(container_project + "/"):
+                ws_host = Path(host_project + ws_str[len(container_project):]).resolve()
+            elif host_examples and ws_str.startswith(container_examples + "/"):
+                ws_host = Path(host_examples + ws_str[len(container_examples):]).resolve()
+            # 如果传入的本就是宿主可见路径（/Users/... 或 /Volumes/...），保留原样
+        
+        # 用宿主机路径作为卷的 source
+        input_dir = (ws_host / "input").resolve()
+        output_dir = (ws_host / "output").resolve()
+        logs_dir = (ws_host / "logs").resolve()
         logs_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +84,7 @@ class DockerExecutor(Executor):
         mounts = [
             {"source": str(input_dir), "target": "/workspace/input", "type": "bind", "read_only": True},
             {"source": str(output_dir), "target": "/workspace/output", "type": "bind", "read_only": False},
-            {"source": str(ws / "meta.json"), "target": "/workspace/meta.json", "type": "bind", "read_only": True},
+            {"source": str((ws_host / "meta.json").resolve()), "target": "/workspace/meta.json", "type": "bind", "read_only": True},
         ]
 
         # 安全选项
@@ -285,9 +310,7 @@ class DockerExecutor(Executor):
             )
         except Exception as e:
             raise AutoscorerError(code="CONTAINER_CREATE_FAILED", message=str(e))
-
-        # 日志收集与超时
-        try:
+        else:
             try:
                 result = container.wait(timeout=timeout)
             except Exception as e:

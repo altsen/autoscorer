@@ -140,15 +140,15 @@ def run(workspace: str, backend: str = typer.Option("docker", help="执行后端
         
         result = run_only(ws, backend)
         execution_time = time.time() - start_time
-        
-        data = {"run_result": result}
+
+        data = {"result": result}
         print(make_cli_success(
             data, 
             execution_time=execution_time,
             workspace=str(ws),
             backend_used=backend
         ))
-        
+
     except AutoscorerError as e:
         print(make_cli_error(e.code, e.message, "execution", {"workspace": workspace}))
     except Exception as e:
@@ -181,7 +181,7 @@ def score(workspace: str,
         # 标准化序列化（pydantic v2）
         payload = result.model_dump() if hasattr(result, 'model_dump') else (result.dict() if hasattr(result, 'dict') else result)
         data = {
-            "score_result": payload,
+            "result": payload,
             "output_path": str(output_path)
         }
         
@@ -221,7 +221,7 @@ def pipeline(workspace: str,
         result = pipeline_run_and_score(ws, p, backend, scorer_override=scorer)
         execution_time = time.time() - start_time
         
-        data = {"pipeline_result": result}
+        data = {"result": result}
         
         print(make_cli_success(
             data,

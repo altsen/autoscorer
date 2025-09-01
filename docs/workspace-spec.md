@@ -75,7 +75,7 @@ workspace/
 ```json
 {
   // 基础信息
-  "job_id": "competition-2024-task-001",
+  "job_id": "competition-2025-task-001",
   "task_type": "classification", 
   "scorer": "classification_f1",
   "version": "1.0",
@@ -339,7 +339,7 @@ id,value
   "versioning": {
     "scorer": "classification_f1",
     "version": "2.0.0",
-    "timestamp": "2024-08-24T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "autoscorer_version": "2.0.0"
   },
   "metadata": {

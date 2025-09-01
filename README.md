@@ -1,7 +1,7 @@
 # AutoScorer
 
 **版本:** v2.0  
-**更新时间:** 2024年12月
+**更新时间:** 2025年9月
 
 一个生产就绪的容器化ML模型自动评分系统，支持分类、回归、检测等多种任务类型。
 
@@ -433,7 +433,7 @@ cat examples/detection/output/result.json
     }
   },
   "meta": {
-    "timestamp": "2024-12-01T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "2.0.0"
   }
 }

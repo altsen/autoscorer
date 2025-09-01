@@ -28,10 +28,10 @@ git clone <autoscorer-repo>
 cd autoscorer
 
 # 2. 启动服务
-docker-compose up -d
+docker compose up -d
 
 # 3. 验证安装
-curl http://localhost:8000/health
+curl http://localhost:8000/healthz
 ```
 
 ### 方式二：本地安装
@@ -61,7 +61,7 @@ celery -A celery_app.worker worker --loglevel=info
 python -m autoscorer.api.run
 
 # 7. 验证安装
-curl http://localhost:8000/health
+curl http://localhost:8000/healthz
 ```
 
 ### 方式三：开发模式
@@ -141,21 +141,10 @@ cat /tmp/demo-workspace/output/result.json
 #### 使用 API
 
 ```bash
-# 提交评分任务
-curl -X POST http://localhost:8000/api/v1/jobs \
+# 直接评分（已有预测结果）
+curl -sS -X POST http://localhost:8000/score \
   -H "Content-Type: application/json" \
-  -d '{
-    "job_id": "demo-001",
-    "task_type": "classification", 
-    "scorer": "classification_f1",
-    "workspace_path": "/tmp/demo-workspace"
-  }'
-
-# 查询任务状态
-curl http://localhost:8000/api/v1/jobs/demo-001/status
-
-# 获取评分结果
-curl http://localhost:8000/api/v1/jobs/demo-001/result
+  -d '{"workspace":"/tmp/demo-workspace"}' | jq .
 ```
 
 ### 3. 理解结果
@@ -177,17 +166,21 @@ curl http://localhost:8000/api/v1/jobs/demo-001/result
   },
   "artifacts": {},
   "timing": {
-    "total_time": 0.05
+    "validate_time": 0.002,
+    "compute_time": 0.006,
+    "save_time": 0.001,
+    "total_time": 0.030
   },
   "versioning": {
     "scorer": "classification_f1",
     "version": "2.0.0",
-    "timestamp": "2024-08-24T10:30:00Z"
+    "timestamp": "2025-09-01T10:30:00Z"
   }
 }
 ```
 
 **结果说明:**
+
 - `score`: 综合得分 (0-1)
 - `rank`: 等级评价
 - `metrics`: 详细指标
@@ -249,7 +242,7 @@ EOF
 
 ```bash
 # 运行完整流程 (推理 + 评分)
-autoscorer run /tmp/container-demo
+autoscorer pipeline /tmp/container-demo
 
 # 查看日志
 cat /tmp/container-demo/logs/container.log
@@ -286,12 +279,10 @@ autoscorer --debug run /path/to/workspace
 
 ```bash
 # 系统状态
-curl http://localhost:8000/health
-curl http://localhost:8000/api/v1/status
+curl http://localhost:8000/healthz
 
 # 评分器管理
-curl http://localhost:8000/api/v1/scorers
-curl http://localhost:8000/api/v1/scorers/classification_f1
+curl http://localhost:8000/scorers
 
 # 任务管理
 curl -X POST http://localhost:8000/api/v1/jobs -d @job.json
@@ -353,6 +344,7 @@ export LOG_LEVEL=INFO
 **症状**: `ConnectionError: Error connecting to Redis`
 
 **解决方案**:
+
 ```bash
 # 检查 Redis 是否运行
 redis-cli ping
@@ -369,6 +361,7 @@ export REDIS_URL=redis://localhost:6379/0
 **症状**: `Error pulling image`
 
 **解决方案**:
+
 ```bash
 # 手动拉取镜像
 docker pull python:3.10-slim
@@ -382,6 +375,7 @@ docker pull python:3.10-slim --registry-mirror=https://mirror.ccs.tencentyun.com
 **症状**: `Permission denied`
 
 **解决方案**:
+
 ```bash
 # 检查文件权限
 ls -la /tmp/demo-workspace
@@ -398,6 +392,7 @@ sudo usermod -aG docker $USER
 **症状**: `Scorer 'xxx' not found`
 
 **解决方案**:
+
 ```bash
 # 查看可用评分器
 autoscorer list-scorers

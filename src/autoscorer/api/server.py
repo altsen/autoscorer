@@ -10,6 +10,8 @@ from autoscorer.pipeline import run_only, score_only, run_and_score
 # Import scorers package to trigger static registrations on startup
 from autoscorer import scorers as _builtin_scorers  # noqa: F401
 from autoscorer.utils.errors import AutoscorerError, maybe_print_exception
+from autoscorer.utils.config import Config
+from autoscorer.utils.task_store import TaskStore
 from autoscorer.scorers.registry import (
     get_registry, list_scorers, load_scorer_file, reload_scorer_file,
     start_watching_file, stop_watching_file, get_watched_files
@@ -21,6 +23,10 @@ app = FastAPI(
     version="0.1.0",
     description="AutoScorer REST API for automated scoring and evaluation"
 )
+
+# 任务结果持久化存储（SQLite）
+_cfg = Config()
+_task_store = TaskStore.from_config(_cfg)
 
 
 def make_success_response(data: Any, meta: Optional[Dict] = None) -> Dict:
@@ -436,7 +442,7 @@ async def api_run(req: RunRequest):
         execution_time = time.time() - start_time
         
         data = {
-            "run_result": result,
+            "result": result,
             "workspace": str(ws)
         }
         
@@ -479,7 +485,7 @@ async def api_score(req: ScoreRequest):
 
     Request: { workspace, params? }
     Behavior: scorer 从 workspace/meta.json 解析，本接口不再接收 scorer 参数。
-    Response: { score_result, output_path, workspace }
+    Response: { result, output_path, workspace }
     """
     import time
     start_time = time.time()
@@ -499,7 +505,7 @@ async def api_score(req: ScoreRequest):
         
         payload = result.model_dump() if hasattr(result, 'model_dump') else (result.dict() if hasattr(result, 'dict') else result)
         data = {
-            "score_result": payload,
+            "result": payload,
             "output_path": str(output_path),
             "workspace": str(ws)
         }
@@ -569,7 +575,7 @@ async def api_pipeline(req: PipelineRequest):
             )
         
         data = {
-            "pipeline_result": result,
+            "result": result,
             "workspace": str(ws)
         }
         
@@ -713,6 +719,11 @@ async def submit_job(req: SubmitRequest):
     }[task_name]
     async_result = mod.celery_app.send_task(task_name, args=args)
     data = {"submitted": True, "task_id": async_result.id, "action": action, "workspace": ws}
+    # 持久化初始状态
+    try:
+        _task_store.upsert(async_result.id, action=action, workspace=ws, state="SUBMITTED", result=None, error=None)
+    except Exception as e:
+        maybe_print_exception(e)
     return make_success_response(data, {"action": "submit"})
 
 
@@ -723,7 +734,30 @@ async def get_task_status(task_id: str):
     resp = {"id": task_id, "state": async_result.state}
     try:
         if async_result.ready():
-            resp["result"] = async_result.get(propagate=False)
+            res = async_result.get(propagate=False)
+            resp["result"] = res
+            # 写回持久化（SUCCESS/FAILURE）
+            try:
+                state = async_result.state
+                if state == "SUCCESS":
+                    _task_store.upsert(task_id, state=state, result=res, finished=True)
+                elif state in ("FAILURE", "REVOKED"):
+                    # 尝试标准错误形态
+                    err = res if isinstance(res, dict) else {"error": str(res)}
+                
+                    _task_store.upsert(task_id, state=state, error=err, finished=True)
+                else:
+                    _task_store.upsert(task_id, state=state)
+            except Exception as e:
+                maybe_print_exception(e)
+        else:
+            # 未就绪则回退到持久化（例如 broker/backend 丢失）
+            stored = _task_store.get(task_id)
+            if stored:
+                resp.update({
+                    "state": stored.get("state") or resp["state"],
+                    "result": stored.get("result") or stored.get("error")
+                })
     except Exception as e:
         resp["result"] = {"error": str(e)}
     return make_success_response(resp, {"action": "task_status"})

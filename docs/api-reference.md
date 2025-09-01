@@ -51,7 +51,7 @@ User-Agent: autoscorer-client/1.0.0
     // 具体数据内容
   },
   "meta": {
-    "timestamp": "2024-08-24T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "0.1.0"
   }
 }
@@ -71,7 +71,7 @@ User-Agent: autoscorer-client/1.0.0
     "workspace": "/path/to/workspace"
   },
   "meta": {
-    "timestamp": "2024-08-24T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "0.1.0",
     "action": "pipeline",
     "execution_time": 45.6
@@ -94,7 +94,7 @@ User-Agent: autoscorer-client/1.0.0
     }
   },
   "meta": {
-    "timestamp": "2024-08-24T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "0.1.0"
   }
 }
@@ -166,14 +166,23 @@ POST /run
 {
   "ok": true,
   "data": {
-    "run_result": "执行成功",
+    "result": {
+      "ok": true,
+      "stage": "inference_done",
+      "job_id": "job-xxx",
+      "timing": {
+        "schedule_time": 0.01,
+        "execution_time": 0.42,
+        "total_time": 0.43
+      }
+    },
     "workspace": "/path/to/workspace"
   },
   "meta": {
     "timestamp": "2025-08-24T10:00:00Z",
     "version": "0.1.0",
     "action": "run_only",
-    "execution_time": 45.6,
+  "execution_time": 45.6,
   "backend_used": "auto"
   }
 }
@@ -204,7 +213,7 @@ POST /score
 {
   "ok": true,
   "data": {
-    "score_result": {
+    "result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
@@ -213,6 +222,12 @@ POST /score
       "metrics": {
         "f1_macro": 0.85,
         "accuracy": 0.88
+      },
+      "timing": {
+        "validate_time": 0.002,
+        "compute_time": 0.006,
+        "save_time": 0.001,
+        "total_time": 0.030
       }
     },
     "output_path": "/path/to/workspace/output/result.json",
@@ -222,7 +237,7 @@ POST /score
     "timestamp": "2025-08-24T10:00:00Z",
     "version": "0.1.0",
     "action": "score_only",
-    "execution_time": 3.5,
+  "execution_time": 3.5,
   "scorer_used": "auto"
   }
 }
@@ -253,7 +268,7 @@ POST /pipeline
 {
   "ok": true,
   "data": {
-    "pipeline_result": {
+    "result": {
       "summary": {
         "score": 0.85,
         "rank": "A",
@@ -262,6 +277,16 @@ POST /pipeline
       "metrics": {
         "f1_macro": 0.85,
         "accuracy": 0.88
+      },
+      "timing": {
+        "validate_time": 0.002,
+        "compute_time": 0.006,
+        "run_schedule_time": 0.010,
+        "run_execution_time": 0.430,
+        "run_total_time": 0.440,
+        "pipeline_total_time": 0.470,
+        "save_time": 0.001,
+        "total_time": 0.028
       }
     },
     "workspace": "/path/to/workspace"
@@ -520,7 +545,7 @@ GET /scorers/watch
       {
         "file_path": "/path/to/custom_scorer.py",
         "check_interval": 1.0,
-        "started_at": "2024-08-24T10:00:00Z"
+        "started_at": "2025-09-01T10:00:00Z"
       }
     ],
     "count": 1
@@ -585,7 +610,7 @@ GET /logs?workspace=/path/to/workspace
   "ok": true,
   "data": {
     "path": "/path/to/workspace/logs/container.log",
-    "content": "2024-08-24 10:00:00 - INFO - Starting execution\n2024-08-24 10:01:00 - INFO - Execution completed"
+    "content": "2025-09-01 10:00:00 - INFO - Starting execution\n2025-09-01 10:01:00 - INFO - Execution completed"
   },
   "meta": {
     "timestamp": "2025-08-24T10:00:00Z",
@@ -704,7 +729,7 @@ GET /tasks/{task_id}
     }
   },
   "meta": {
-    "timestamp": "2024-08-24T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "0.1.0"
   }
 }
@@ -796,8 +821,8 @@ pipeline_data = {
 result = requests.post("http://localhost:8000/pipeline", json=pipeline_data).json()
 
 if result["ok"]:
-    score = result["data"]["pipeline_result"]["summary"]["score"]
-    print(f"Final score: {score}")
+  score = result["data"]["result"]["summary"]["score"]
+  print(f"Final score: {score}")
 else:
     print(f"Error: {result['error']['message']}")
 ```
@@ -866,4 +891,4 @@ print(f"Watched files: {watch_status['data']['watched_files']}")
 - **[CLI 指南](cli-guide.md)** - 命令行工具使用
 - **[工作区规范](workspace-spec.md)** - 数据格式要求
 - **[评分器开发](scorer-development.md)** - 自定义评分器开发
-- **[部署指南](DEPLOYMENT.md)** - 生产环境部署
+- **[部署指南](deployment.md)** - 生产环境部署

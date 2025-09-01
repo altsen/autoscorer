@@ -7,6 +7,27 @@
 - Celery 任务模块：`celery_app.tasks`
 - 配置文件：`config.yaml`（自动搜索：CWD → 项目根 → ~/.autoscorer → /etc/autoscorer；可用 `--config-path` 指定）
 
+## 一键启动（推荐）
+
+已提供 Makefile 与 Compose，适合本地与 PoC：
+
+```bash
+# 构建并启动所有服务（api, worker, redis, flower）
+make up
+
+# 查看服务状态与日志
+make ps
+make logs
+
+# 打开 Flower 监控（http://localhost:5555）
+make flower
+
+# 停止并清理
+make down
+```
+
+说明：Makefile 内置 DOCKER_BUILDKIT=0，避免在受限网络环境下的 BuildKit 前端拉取失败。
+
 ## 构建镜像
 
 仓库提供 `Dockerfile`，默认工作目录 `/app`。
@@ -19,6 +40,7 @@ docker build -t autoscorer:local .
 要点：
 
 - 已设置 `PYTHONPATH=/app/src` 便于导入包。
+- 若网络对 BuildKit 前端有限制，可用 `DOCKER_BUILDKIT=0 docker build ...`（Makefile 已内置）。
 
 ## 单容器运行（仅 API）
 
@@ -41,12 +63,11 @@ curl -s http://localhost:8000/healthz | jq .
 
 - 不使用 Docker 执行器时，可不挂载 `/var/run/docker.sock`。
 
-## Docker Compose（API + Redis + Worker）
+## Docker Compose（API + Redis + Worker + Flower）
 
 `docker-compose.yml` 已与实现对齐：
 
 ```yaml
-version: "3.9"
 services:
   redis:
     image: redis:7-alpine
@@ -65,11 +86,18 @@ services:
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
       - IMAGE_PULL_POLICY=ifnotpresent
+      # 如需连接宿主 Docker，请使用以下 DOCKER_HOST（macOS/Windows 使用不同映射方案）
       - DOCKER_HOST=unix:///var/run/docker.sock
+      # 路径映射：容器路径 -> 宿主路径，用于 docker.sock 挂载场景下将卷映射回宿主
+      - CONTAINER_PROJECT_ROOT=/app
+      - HOST_PROJECT_ROOT=${PWD}
+      - CONTAINER_EXAMPLES_ROOT=/data/examples
+      - HOST_EXAMPLES_ROOT=${PWD}/examples
     volumes:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
+      - ./config.yaml:/app/config.yaml:ro
     working_dir: /app
     ports:
       - "8000:8000"
@@ -77,28 +105,52 @@ services:
     restart: unless-stopped
 
   worker:
+    build: .
     image: autoscorer:local
     container_name: autoscorer_worker
     depends_on:
       - redis
       - api
     environment:
+      - PYTHONPATH=src
       - CELERY_BROKER=redis://redis:6379/0
       - CELERY_BACKEND=redis://redis:6379/0
       - DOCKER_HOST=unix:///var/run/docker.sock
+      - CONTAINER_PROJECT_ROOT=/app
+      - HOST_PROJECT_ROOT=${PWD}
+      - CONTAINER_EXAMPLES_ROOT=/data/examples
+      - HOST_EXAMPLES_ROOT=${PWD}/examples
     volumes:
       - ./:/app
       - /var/run/docker.sock:/var/run/docker.sock
       - ./examples:/data/examples
+      - ./config.yaml:/app/config.yaml:ro
     working_dir: /app
-    command: ["bash", "-lc", "PYTHONPATH=src celery -A celery_app.tasks worker --loglevel=info"]
+    command: ["bash", "-lc", "celery -A celery_app.tasks worker --loglevel=info"]
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:latest
+    container_name: autoscorer_flower
+    depends_on:
+      - redis
+    command: [
+      "celery",
+      "flower",
+      "--broker=redis://redis:6379/0",
+      "--result-backend=redis://redis:6379/0",
+      "--address=0.0.0.0",
+      "--port=5555"
+    ]
+    ports:
+      - "5555:5555"
     restart: unless-stopped
 ```
 
 启动与验证：
 
 ```bash
-# 启动（包含构建）
+# 启动（包含构建，等价于 make up）
 docker compose up -d --build
 
 # 健康检查
@@ -106,6 +158,9 @@ curl -s http://localhost:8000/healthz | jq .
 
 # 列出评分器
 curl -s http://localhost:8000/scorers | jq .
+
+# Flower 监控
+open http://localhost:5555  # macOS
 ```
 
 提交任务：
@@ -119,6 +174,16 @@ curl -s -X POST http://localhost:8000/pipeline \
 # 异步（Celery）
 autoscorer submit examples/classification --action pipeline
 ```
+
+### macOS/Windows 注意事项（docker.sock 与路径共享）
+
+当以 docker.sock 模式连接宿主 Docker 时，容器内路径需要映射回宿主路径供子容器挂载：
+
+- 在 compose 中已设置以下环境变量，由执行器自动完成映射：
+  - CONTAINER_PROJECT_ROOT=/app → HOST_PROJECT_ROOT=${PWD}
+  - CONTAINER_EXAMPLES_ROOT=/data/examples → HOST_EXAMPLES_ROOT=${PWD}/examples
+- 在 Docker Desktop 中开启“File Sharing”，确保工程目录、examples 目录被共享，否则会出现 “Mounts denied” 错误。
+- 若 ${PWD} 未被正确展开，请在命令前导出：`export PWD=$PWD`，或将上面 HOST_* 路径替换为绝对路径。
 
 ## 容器内配置管理
 
@@ -149,7 +214,7 @@ livenessProbe:
   periodSeconds: 10
 readinessProbe:
   httpGet:
-    path: /
+    path: /healthz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 5
@@ -455,7 +520,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /
+            path: /healthz
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 5
@@ -774,7 +839,7 @@ spec:
 
 ## 部署脚本
 
-### 自动化部署脚本
+### 自动化部署脚本（示例，已改为 docker compose 与 /healthz）
 
 ```bash
 #!/bin/bash
@@ -810,10 +875,11 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null; then
-        log_error "Docker Compose not found. Please install Docker Compose first."
-        exit 1
-    fi
+  # Docker Compose V2（docker compose）随 Docker Desktop 提供
+  if ! docker compose version &> /dev/null; then
+    log_error "Docker Compose V2 not found. Please install/update Docker."
+    exit 1
+  fi
     
     if ! command -v kubectl &> /dev/null; then
         log_warn "kubectl not found. Kubernetes deployment will not be available."
@@ -868,19 +934,19 @@ deploy_docker() {
     
     # 启动服务
     log_info "Starting services with Docker Compose..."
-    docker-compose up -d
+  docker compose up -d
     
     # 等待服务启动
     log_info "Waiting for services to be ready..."
     sleep 30
     
     # 健康检查
-    if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+  if curl -f http://localhost:8000/healthz > /dev/null 2>&1; then
         log_info "AutoScorer is running successfully!"
         log_info "API: http://localhost:8000"
         log_info "Flower (Celery monitoring): http://localhost:5555"
     else
-        log_error "AutoScorer failed to start. Check logs with: docker-compose logs"
+    log_error "AutoScorer failed to start. Check logs with: docker compose logs"
         exit 1
     fi
 }
@@ -944,7 +1010,7 @@ verify_deployment() {
     fi
     
     # 健康检查
-    if curl -f "$API_URL/health" > /dev/null 2>&1; then
+  if curl -f "$API_URL/healthz" > /dev/null 2>&1; then
         log_info "✓ Health check passed"
     else
         log_error "✗ Health check failed"
@@ -977,7 +1043,7 @@ cleanup() {
     log_info "Cleaning up deployment..."
     
     if [[ "$DEPLOYMENT_TYPE" == "docker" ]]; then
-        docker-compose down -v
+  docker compose down -v
         docker system prune -f
     else
         kubectl delete namespace autoscorer 2>/dev/null || log_warn "Namespace may not exist"
@@ -1034,9 +1100,9 @@ main() {
     check_dependencies
     generate_config
     
-    if [[ "$DEPLOYMENT_TYPE" == "docker" ]]; then
-        deploy_docker
-    else
+  if [[ "$DEPLOYMENT_TYPE" == "docker" ]]; then
+    deploy_docker
+  else
         deploy_kubernetes
     fi
     
@@ -1051,21 +1117,24 @@ main "$@"
 
 ## 故障排除
 
-### 常见问题
+### 常见故障与排查步骤
 
 1. **容器启动失败**
+
 ```bash
 # 查看容器日志
-docker-compose logs autoscorer
+docker compose logs api
+docker compose logs worker
 
 # 检查容器状态
-docker-compose ps
+docker compose ps
 
 # 进入容器调试
-docker-compose exec autoscorer bash
+docker compose exec api bash
 ```
 
-2. **Kubernetes Pod 启动失败**
+1. **Kubernetes Pod 启动失败**
+
 ```bash
 # 查看 Pod 状态
 kubectl get pods -n autoscorer
@@ -1077,16 +1146,18 @@ kubectl logs -f deployment/autoscorer -n autoscorer
 kubectl describe pod <pod-name> -n autoscorer
 ```
 
-3. **网络连接问题**
+1. **网络连接问题**
+
 ```bash
 # 测试 Redis 连接
 kubectl exec -it deployment/autoscorer -n autoscorer -- redis-cli -h redis-service ping
 
 # 测试数据库连接 (如果使用)
-kubectl exec -it deployment/autoscorer -n autoscorer -- psql -h postgres-service -U autoscorer -d autoscorer -c '\l'
+kubectl exec -it deployment/autoscorer -n autoscorer -- psql -h postgres-service -U autoscorer -d autoscorer -c '\\l'
 ```
 
-4. **性能问题**
+1. **性能问题**
+
 ```bash
 # 查看资源使用情况
 kubectl top nodes

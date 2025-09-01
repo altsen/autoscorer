@@ -14,43 +14,47 @@
   },
   "artifacts": {
     "input_gt": {
-      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/input/gt.csv",
+      "path": "/data/examples/classification/input/gt.csv",
       "size": 33,
       "sha256": "e2d132a48d70d5d682eafa854d26fb9cfd9751f48add1802b5a67446fde8abb1"
     },
     "output_pred": {
-      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/pred.csv",
+      "path": "/data/examples/classification/output/pred.csv",
       "size": 33,
       "sha256": "e2d132a48d70d5d682eafa854d26fb9cfd9751f48add1802b5a67446fde8abb1"
     },
     "artifacts/confusion_matrix.json": {
-      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/artifacts/confusion_matrix.json",
+      "path": "/data/examples/classification/output/artifacts/confusion_matrix.json",
       "size": 243,
       "sha256": "e488f6f2057124e7aa95736f497f5c48e4ba1c23bf18463b40299b37839d55bf"
     },
     "artifacts/error_cases.csv": {
-      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/artifacts/error_cases.csv",
+      "path": "/data/examples/classification/output/artifacts/error_cases.csv",
       "size": 12,
       "sha256": "b51d6d7f94f4c032ac9d19039b63d3d3307e0c71e001708b71c969415b036964"
     },
     "result_json": {
-      "path": "/Users/mac/project/sthq/autoscorers/autoscorer/examples/classification/output/result.json",
-      "size": 1563,
-      "sha256": "5982ef4f3ff81715355423f91efd8ccab7decb74b859e07d7d535c4388008cee"
+      "path": "/data/examples/classification/output/result.json",
+      "size": 1579,
+      "sha256": "7a4c3691fff6cad2266828dd91f113ff3f54d061f4d596d3fa253aa6c8c3f8bb"
     }
   },
   "timing": {
-    "validate_time": 0.00043403200106695294,
-    "compute_time": 0.0013690429914277047,
-    "save_time": 0.0004524719843175262,
-    "total_time": 0.004825923009775579
+    "validate_time": 0.002142909999747644,
+    "compute_time": 0.003753352000785526,
+    "run_schedule_time": 0.010484164000445162,
+    "run_execution_time": 0.48411679600030766,
+    "run_total_time": 0.4946030940009223,
+    "pipeline_total_time": 0.4946030940009223,
+    "save_time": 0.0015459819987881929,
+    "total_time": 0.02391559300122026
   },
   "resources": {},
   "versioning": {
     "scorer": "classification_f1",
     "version": "2.0.0",
     "algorithm": "F1-Score Macro Average",
-    "timestamp": "2025-08-26T05:45:27.872838+00:00"
+    "timestamp": "2025-09-01T05:45:45.906253+00:00"
   },
   "error": null
 }

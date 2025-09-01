@@ -33,7 +33,7 @@ class AutoscorerError(Exception):
     "details": {}
   },
   "meta": {
-    "timestamp": "2024-12-01T10:00:00Z",
+    "timestamp": "2025-09-01T10:00:00Z",
     "version": "0.1.0"
   }
 }
@@ -49,7 +49,7 @@ class AutoscorerError(Exception):
     "message": "错误描述",
     "stage": "cli|validation|execution"
   },
-  "timestamp": "2024-12-01T10:00:00Z"
+  "timestamp": "2025-09-01T10:00:00Z"
 }
 ```
 
@@ -921,7 +921,7 @@ netstat -an | grep :8000 | wc -l
 
 # 应用指标
 echo "Application Metrics:"
-curl -s http://localhost:8000/health | jq '.'
+curl -s http://localhost:8000/healthz | jq '.'
 ```
 
 ## 配置示例

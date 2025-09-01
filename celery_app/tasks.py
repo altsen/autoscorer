@@ -20,6 +20,7 @@ try:
     from autoscorer.pipeline import run_only, score_only, run_and_score
     from autoscorer.utils.errors import AutoscorerError, make_error
     from autoscorer.utils.errors import maybe_print_exception, make_error_response
+    from autoscorer.utils.task_store import TaskStore
 except ImportError as e:
     logger.error(f"Failed to import autoscorer modules: {e}")
     logger.error(f"Python path: {sys.path}")
@@ -45,6 +46,7 @@ celery_app = Celery(
     broker=cfg.get('CELERY_BROKER', 'redis://localhost:6379/0'), 
     backend=cfg.get('CELERY_BACKEND', 'redis://localhost:6379/0')
 )
+_task_store = TaskStore.from_config(cfg)
 
 # 配置Celery
 celery_app.conf.update(
@@ -100,12 +102,22 @@ def run_job(self, workspace: str, backend: str | None = None, callback_url: Opti
     try:
         logger.info(f"Starting run_job for workspace: {workspace}")
         ws = Path(workspace)
+        # 标记 STARTED
+        try:
+            _task_store.upsert(self.request.id, action="run", workspace=str(ws), state="STARTED")
+        except Exception as e:
+            logger.debug(f"task_store upsert start failed: {e}")
         result = run_only(ws, backend)
         logger.info(f"Completed run_job for workspace: {workspace}")
         # 成功回调
         if callback_url:
-            payload = {"ok": True, "data": {"run_result": result, "workspace": str(ws)}, "meta": {"task_id": self.request.id}}
+            payload = {"ok": True, "data": {"result": result, "workspace": str(ws)}, "meta": {"task_id": self.request.id}}
             _http_post_json(callback_url, payload)
+        # 持久化成功
+        try:
+            _task_store.upsert(self.request.id, state="SUCCESS", result={"result": result, "workspace": str(ws)}, finished=True)
+        except Exception as e:
+            logger.debug(f"task_store upsert success failed: {e}")
         return result
     except AutoscorerError as e:
         logger.error(f"AutoscorerError in run_job: {e.code} - {e.message}")
@@ -119,6 +131,11 @@ def run_job(self, workspace: str, backend: str | None = None, callback_url: Opti
             payload["error"]["details"] = (e.details or {})
             payload["error"]["details"].update({"workspace": workspace})
             _http_post_json(callback_url, payload)
+        # 持久化失败
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": e.code, "message": e.message, "details": e.details}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise ex
     except Exception as e:
         logger.error(f"Unexpected error in run_job: {e}")
@@ -130,6 +147,10 @@ def run_job(self, workspace: str, backend: str | None = None, callback_url: Opti
             payload["meta"]["task_id"] = self.request.id
             payload["error"]["details"] = {"workspace": workspace}
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": "EXEC_ERROR", "message": str(e), "details": {"workspace": workspace}}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise
 
 
@@ -139,6 +160,10 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
     try:
         logger.info(f"Starting score_job for workspace: {workspace}")
         ws = Path(workspace)
+        try:
+            _task_store.upsert(self.request.id, action="score", workspace=str(ws), state="STARTED")
+        except Exception as e:
+            logger.debug(f"task_store upsert start failed: {e}")
         # score_only 返回 (Result, Path)
         result_model, out = score_only(ws, params or {})
         # pydantic v2 序列化
@@ -146,11 +171,15 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
             result_model.model_dump() if hasattr(result_model, "model_dump")
             else (result_model.dict() if hasattr(result_model, "dict") else result_model)
         )
-        result = {"score_result": payload, "result_path": str(out), "workspace": str(ws)}
+        result = {"result": payload, "output_path": str(out), "workspace": str(ws)}
         logger.info(f"Completed score_job for workspace: {workspace}")
         if callback_url:
             cb = {"ok": True, "data": result, "meta": {"task_id": self.request.id}}
             _http_post_json(callback_url, cb)
+        try:
+            _task_store.upsert(self.request.id, state="SUCCESS", result=result, finished=True)
+        except Exception as e:
+            logger.debug(f"task_store upsert success failed: {e}")
         return result
     except AutoscorerError as e:
         logger.error(f"AutoscorerError in score_job: {e.code} - {e.message}")
@@ -164,6 +193,10 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
             payload["error"]["details"] = (e.details or {})
             payload["error"]["details"].update({"workspace": workspace})
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": e.code, "message": e.message, "details": e.details}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise ex
     except Exception as e:
         logger.error(f"Unexpected error in score_job: {e}")
@@ -175,6 +208,10 @@ def score_job(self, workspace: str, params: dict = None, backend: str | None = N
             payload["meta"]["task_id"] = self.request.id
             payload["error"]["details"] = {"workspace": workspace}
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": "SCORE_ERROR", "message": str(e), "details": {"workspace": workspace}}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise
 
 
@@ -184,11 +221,19 @@ def run_and_score_job(self, workspace: str, params: dict = None, backend: str | 
     try:
         logger.info(f"Starting run_and_score_job for workspace: {workspace}")
         ws = Path(workspace)
+        try:
+            _task_store.upsert(self.request.id, action="pipeline", workspace=str(ws), state="STARTED")
+        except Exception as e:
+            logger.debug(f"task_store upsert start failed: {e}")
         result = run_and_score(ws, params or {}, backend)
         logger.info(f"Completed run_and_score_job for workspace: {workspace}")
         if callback_url:
-            payload = {"ok": True, "data": {"pipeline_result": result, "workspace": str(ws)}, "meta": {"task_id": self.request.id}}
+            payload = {"ok": True, "data": {"result": result, "workspace": str(ws)}, "meta": {"task_id": self.request.id}}
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="SUCCESS", result={"result": result, "workspace": str(ws)}, finished=True)
+        except Exception as e:
+            logger.debug(f"task_store upsert success failed: {e}")
         return result
     except AutoscorerError as e:
         logger.error(f"AutoscorerError in run_and_score_job: {e.code} - {e.message}")
@@ -202,6 +247,10 @@ def run_and_score_job(self, workspace: str, params: dict = None, backend: str | 
             payload["error"]["details"] = (e.details or {})
             payload["error"]["details"].update({"workspace": workspace})
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": e.code, "message": e.message, "details": e.details}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise ex
     except Exception as e:
         logger.error(f"Unexpected error in run_and_score_job: {e}")
@@ -213,4 +262,8 @@ def run_and_score_job(self, workspace: str, params: dict = None, backend: str | 
             payload["meta"]["task_id"] = self.request.id
             payload["error"]["details"] = {"workspace": workspace}
             _http_post_json(callback_url, payload)
+        try:
+            _task_store.upsert(self.request.id, state="FAILURE", error={"code": "PIPELINE_ERROR", "message": str(e), "details": {"workspace": workspace}}, finished=True)
+        except Exception as ex2:
+            logger.debug(f"task_store upsert failure failed: {ex2}")
         raise

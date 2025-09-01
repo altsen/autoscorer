@@ -1,0 +1,43 @@
+# Ignore git & VCS
+.git
+.gitignore
+
+# Python caches
+__pycache__
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info
+.eggs/
+.build/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Tests & local artifacts
+.coverage
+.pytest_cache/
+htmlcov/
+
+# IDE/editor
+.vscode/
+.idea/
+
+# Logs
+logs/
+
+# Node/npm
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Examples outputs can be large; keep input but not outputs if needed
+examples/**/logs/
+examples/**/output/result.json
+examples/**/output/pred.csv
+examples/**/output/pred.json

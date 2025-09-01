@@ -27,6 +27,7 @@ autoscorer config paths
 ```
 
 输出示例：
+
 ```json
 {
   "status": "success",
@@ -558,7 +559,8 @@ export HEALTH_CHECK_INTERVAL=30
 ### 常见配置错误
 
 1. **Docker 连接失败**
-   ```bash
+
+  ```bash
    # 检查 Docker 守护进程
    docker info
    
@@ -566,8 +568,9 @@ export HEALTH_CHECK_INTERVAL=30
    ls -la /var/run/docker.sock
    ```
 
-2. **内存格式错误**
-   ```yaml
+1. **内存格式错误**
+
+  ```yaml
    # 错误格式
    DEFAULT_MEMORY: "4GB"  # ❌
    DEFAULT_MEMORY: "4"    # ❌
@@ -578,8 +581,9 @@ export HEALTH_CHECK_INTERVAL=30
    DEFAULT_MEMORY: "4096m" # ✅
    ```
 
-3. **Redis 连接失败**
-   ```bash
+1. **Redis 连接失败**
+
+  ```bash
    # 测试 Redis 连接
    redis-cli -h localhost -p 6379 ping
    
@@ -587,8 +591,9 @@ export HEALTH_CHECK_INTERVAL=30
    autoscorer config validate
    ```
 
-4. **Kubernetes 配置错误**
-   ```bash
+1. **Kubernetes 配置错误**
+
+  ```bash
    # 检查集群连接
    kubectl cluster-info
    
@@ -603,5 +608,5 @@ export HEALTH_CHECK_INTERVAL=30
 
 - **[CLI 用户指南](cli-guide.md)** - CLI 命令详细说明
 - **[API 参考](api-reference.md)** - REST API 接口文档
-- **[部署指南](DEPLOYMENT.md)** - 生产环境部署
+- **[部署指南](deployment.md)** - 生产环境部署
 - **[开发指南](getting-started.md)** - 开发环境搭建

@@ -76,7 +76,7 @@
     "scorer": "classification_f1",
     "version": "2.0.0",
     "algorithm": "Macro-F1 with per-class precision and recall",
-    "timestamp": "2024-08-21T10:30:00.123Z",
+    "timestamp": "2025-09-01T10:30:00.123Z",
     "commit_hash": "a1b2c3d4",
     "environment": {
       "python_version": "3.10.12",
@@ -231,7 +231,7 @@
 | `scorer` | string | ✅ | 评分器名称 | "classification_f1" |
 | `version` | string | ✅ | 评分器版本 | "2.0.0" |
 | `algorithm` | string | ❌ | 算法描述 | "Macro-F1 with..." |
-| `timestamp` | string | ✅ | ISO格式时间戳 | "2024-08-21T10:30:00.123Z" |
+| `timestamp` | string | ✅ | ISO格式时间戳 | "2025-09-01T10:30:00.123Z" |
 | `commit_hash` | string | ❌ | 代码提交哈希 | "a1b2c3d4" |
 | `environment` | object | ❌ | 运行环境信息 | 见示例 |
 
@@ -442,7 +442,7 @@
     // 具体数据内容
   },
   "meta": {
-    "timestamp": "2024-08-21T10:30:00Z",
+    "timestamp": "2025-09-01T10:30:00Z",
     "request_id": "req_123456",
     "version": "2.0.0"
   }
@@ -465,7 +465,7 @@ API 错误响应使用标准化格式:
     }
   },
   "meta": {
-    "timestamp": "2024-08-21T10:30:00Z",
+    "timestamp": "2025-09-01T10:30:00Z",
     "request_id": "req_123456",
     "version": "2.0.0"
   }
@@ -482,12 +482,16 @@ API 错误响应使用标准化格式:
 {
   "ok": true,
   "data": {
-    // Result schema 完整内容
+    "result": {
+      // Result schema 完整内容（timing 为扁平字段: validate_time/compute_time/save_time/total_time 等）
+    },
+    "output_path": "/path/to/workspace/output/result.json",
+    "workspace": "/path/to/workspace"
   },
   "meta": {
     "scorer_used": "classification_f1",
     "execution_time": 1.23,
-    "timestamp": "2024-08-21T10:30:00Z"
+    "timestamp": "2025-09-01T10:30:00Z"
   }
 }
 ```
@@ -500,20 +504,18 @@ API 错误响应使用标准化格式:
 {
   "ok": true,
   "data": {
-    "run_result": {
-      "status": "success",
-      "execution_time": 5.67,
-      "output_files": ["pred.csv"]
-    },
-    "score_result": {
+    "result": {
       // Result schema 完整内容
-    }
+      // timing 需包含扁平化的 run_* 字段与 pipeline_total_time
+      // 例如: run_schedule_time, run_execution_time, run_total_time, pipeline_total_time
+    },
+    "workspace": "/path/to/workspace"
   },
   "meta": {
     "executor_used": "docker",
     "scorer_used": "classification_f1",
     "total_time": 6.90,
-    "timestamp": "2024-08-21T10:30:00Z"
+    "timestamp": "2025-09-01T10:30:00Z"
   }
 }
 ```
@@ -533,7 +535,7 @@ API 错误响应使用标准化格式:
     "watched_files": ["/path/to/file.py"]
   },
   "meta": {
-    "timestamp": "2024-08-21T10:30:00Z"
+    "timestamp": "2025-09-01T10:30:00Z"
   }
 }
 ```
@@ -551,7 +553,7 @@ CLI 命令成功时输出 JSON 格式:
     // 命令特定数据
   },
   "execution_time": 1.23,
-  "timestamp": "2024-08-21T10:30:00Z"
+  "timestamp": "2025-09-01T10:30:00Z"
 }
 ```
 
@@ -567,7 +569,7 @@ CLI 命令出错时输出:
     "message": "Error description",
     "stage": "execution_stage"
   },
-  "timestamp": "2024-08-21T10:30:00Z"
+  "timestamp": "2025-09-01T10:30:00Z"
 }
 ```
 
@@ -579,12 +581,16 @@ CLI 命令出错时输出:
 {
   "status": "success",
   "data": {
-    // Result schema 完整内容
+    "result": {
+      // Result schema 完整内容（timing 扁平化）
+    },
+    "output_path": "/path/to/workspace/output/result.json",
+    "workspace": "/path/to/workspace"
   },
   "execution_time": 1.23,
   "workspace": "/path/to/workspace",
   "scorer_used": "classification_f1",
-  "timestamp": "2024-08-21T10:30:00Z"
+  "timestamp": "2025-09-01T10:30:00Z"
 }
 ```
 
@@ -594,19 +600,15 @@ CLI 命令出错时输出:
 {
   "status": "success",
   "data": {
-    "run_phase": {
-      "status": "success",
-      "time": 5.67
-    },
-    "score_phase": {
-      // Result schema 完整内容
+    "result": {
+      // Result schema 完整内容（包含 run_* 与 pipeline_total_time 等扁平 timing 字段）
     }
   },
   "execution_time": 6.90,
   "workspace": "/path/to/workspace",
   "executor_used": "docker",
   "scorer_used": "classification_f1",
-  "timestamp": "2024-08-21T10:30:00Z"
+  "timestamp": "2025-09-01T10:30:00Z"
 }
 ```
 
@@ -619,7 +621,7 @@ CLI 命令出错时输出:
   "data": {
     // 操作特定数据
   },
-  "timestamp": "2024-08-21T10:30:00Z"
+  "timestamp": "2025-09-01T10:30:00Z"
 }
 ```
 
